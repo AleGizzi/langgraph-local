@@ -77,6 +77,8 @@ Design notes:
   outputs passed between agents.
 - Tokens stream live but are not persisted; durable events (agent outputs, tool
   calls, decisions) are stored and replayed on reconnect — refresh-safe.
+- Stopping a run takes effect at the next streamed token, so on CPU it can lag
+  a few seconds while the model finishes prompt evaluation.
 
 ## License
 
