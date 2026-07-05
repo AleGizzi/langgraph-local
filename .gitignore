@@ -4,3 +4,5 @@ __pycache__/
 data/
 *.log
 .DS_Store
+node_modules/
+static/dist/

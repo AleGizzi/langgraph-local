@@ -8,6 +8,13 @@ if [ ! -d .venv ]; then
   .venv/bin/pip install -r requirements.txt
 fi
 
+# Build the React frontend if the bundle is missing or sources are newer.
+if [ ! -f static/dist/index.html ] || \
+   [ -n "$(find frontend/src frontend/index.html -newer static/dist/index.html 2>/dev/null | head -1)" ]; then
+  echo "→ Building frontend…"
+  (cd frontend && npm install --silent && npm run build)
+fi
+
 PORT="${PORT:-5860}"
 echo "→ Local Agents Studio on http://127.0.0.1:${PORT}"
 exec .venv/bin/gunicorn \

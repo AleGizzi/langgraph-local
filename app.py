@@ -153,7 +153,7 @@ def _validate_team(data: dict):
 
 @app.get("/")
 def index():
-    return send_from_directory("static", "index.html")
+    return send_from_directory("static/dist", "index.html")
 
 
 @app.get("/api/health")

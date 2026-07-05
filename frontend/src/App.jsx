@@ -1,0 +1,99 @@
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { api } from "./lib/api.js";
+import Teams from "./pages/Teams.jsx";
+import TeamPage from "./pages/TeamPage.jsx";
+import Runs from "./pages/Runs.jsx";
+import RunDetail from "./pages/RunDetail.jsx";
+import Models from "./pages/Models.jsx";
+import Personas from "./pages/Personas.jsx";
+import Setup from "./pages/Setup.jsx";
+import Settings from "./pages/Settings.jsx";
+
+export const AppCtx = createContext(null);
+export const useApp = () => useContext(AppCtx);
+
+function useHashRoute() {
+  const [hash, setHash] = useState(location.hash || "#/teams");
+  useEffect(() => {
+    const fn = () => setHash(location.hash || "#/teams");
+    window.addEventListener("hashchange", fn);
+    return () => window.removeEventListener("hashchange", fn);
+  }, []);
+  const [, page = "teams", id] = hash.split("/");
+  return { page, id: id ? decodeURIComponent(id) : null };
+}
+
+const NAV = [
+  ["teams", "🎛️", "Studio"],
+  ["runs", "🗂️", "Runs"],
+  ["personas", "🎭", "Personas"],
+  ["models", "🧠", "Models"],
+  ["setup", "📦", "Setup"],
+  ["settings", "⚙️", "Settings"],
+];
+
+export default function App() {
+  const route = useHashRoute();
+  const [models, setModels] = useState({ ollama: [], lmstudio: [] });
+  const [tools, setTools] = useState({});
+  const [paramSpecs, setParamSpecs] = useState([]);
+  const [health, setHealth] = useState(null);
+
+  useEffect(() => {
+    api("/models").then(setModels).catch(() => {});
+    api("/tools").then(setTools).catch(() => {});
+    api("/params").then(setParamSpecs).catch(() => {});
+    const poll = () => api("/health").then(setHealth).catch(() => {});
+    poll();
+    const t = setInterval(poll, 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  const active = route.page === "team" ? "teams" : route.page === "run" ? "runs" : route.page;
+
+  let view = null;
+  if (route.page === "teams") view = <Teams />;
+  else if (route.page === "team" && route.id) view = <TeamPage teamId={+route.id} key={route.id} />;
+  else if (route.page === "runs") view = <Runs />;
+  else if (route.page === "run" && route.id) view = <RunDetail runId={+route.id} key={route.id} />;
+  else if (route.page === "models") view = <Models />;
+  else if (route.page === "personas") view = <Personas />;
+  else if (route.page === "setup") view = <Setup />;
+  else if (route.page === "settings") view = <Settings />;
+  else view = <Teams />;
+
+  return (
+    <AppCtx.Provider value={{ models, tools, paramSpecs, health }}>
+      <div id="app">
+        <aside className="sidebar">
+          <div className="logo">
+            <div className="logo-mark">🧩</div>
+            <div>
+              <div className="logo-name">Agents Studio</div>
+              <div className="logo-sub">LangGraph · local</div>
+            </div>
+          </div>
+          <nav className="nav">
+            {NAV.map(([key, ico, label]) => (
+              <a key={key} href={`#/${key}`} className={active === key ? "active" : ""}>
+                <span className="ico">{ico}</span>
+                <span className="txt">{label}</span>
+              </a>
+            ))}
+          </nav>
+          <div className="sidebar-foot">
+            {health && Object.entries(health.providers).map(([name, p]) => (
+              <div className="prov" key={name}>
+                <span className={"dot " + (p.up ? "up" : "down")} />
+                <span className="lbl">
+                  {name === "ollama" ? "Ollama" : "LM Studio"} · {p.up ? `${p.models} models` : "offline"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </aside>
+        <main className="main"><div className="page">{view}</div></main>
+      </div>
+    </AppCtx.Provider>
+  );
+}
