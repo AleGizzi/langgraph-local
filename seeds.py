@@ -77,6 +77,48 @@ SEED_TEAMS = [
         ],
     },
     {
+        "name": "Panel Discussion",
+        "icon": "🎭",
+        "description": "Custom graph: three specialists analyze the task in parallel "
+                       "branches, then a synthesizer merges their views into one answer.",
+        "topology": "graph",
+        "settings": {"parallel": True},
+        "agents": [
+            _agent("Optimist", "Opportunity finder", GENERAL,
+                   "You are the optimist on a panel. Argue the strongest genuine case "
+                   "FOR the idea/topic: benefits, opportunities, best-case outcomes. "
+                   "Be concrete and persuasive, not naive.", 0.7),
+            _agent("Skeptic", "Risk analyst", GENERAL,
+                   "You are the skeptic on a panel. Argue the strongest genuine case "
+                   "AGAINST or urging caution: risks, costs, failure modes, "
+                   "second-order effects. Be concrete, not cynical.", 0.7),
+            _agent("Pragmatist", "Practical analyst", GENERAL,
+                   "You are the pragmatist on a panel. Focus on implementation "
+                   "reality: what it takes to execute, constraints, timelines, and "
+                   "what a sensible middle path looks like.", 0.5),
+            _agent("Synthesizer", "Panel moderator", GENERAL,
+                   "You are the panel moderator. Synthesize the panelists' views "
+                   "into one balanced, decision-ready answer: points of agreement, "
+                   "key tensions, and a clear recommendation.", 0.4),
+        ],
+        "graph": {
+            "nodes": [{"id": "optimist", "agent": "Optimist"},
+                      {"id": "skeptic", "agent": "Skeptic"},
+                      {"id": "pragmatist", "agent": "Pragmatist"},
+                      {"id": "synth", "agent": "Synthesizer"}],
+            "edges": [{"source": "start", "target": "optimist"},
+                      {"source": "start", "target": "skeptic"},
+                      {"source": "start", "target": "pragmatist"},
+                      {"source": "optimist", "target": "synth"},
+                      {"source": "skeptic", "target": "synth"},
+                      {"source": "pragmatist", "target": "synth"},
+                      {"source": "synth", "target": "end"}],
+            "positions": {"start": {"x": 0, "y": 160}, "optimist": {"x": 220, "y": 40},
+                          "skeptic": {"x": 220, "y": 160}, "pragmatist": {"x": 220, "y": 280},
+                          "synth": {"x": 470, "y": 160}, "end": {"x": 700, "y": 160}},
+        },
+    },
+    {
         "name": "Quick Assistant",
         "icon": "⚡",
         "description": "A single fast agent with calculator and file tools for "
@@ -93,9 +135,100 @@ SEED_TEAMS = [
 ]
 
 
+def _persona(name, icon, role, description, prompt, params=None, tools=None,
+             model=GENERAL):
+    return {"name": name, "icon": icon, "role": role, "description": description,
+            "system_prompt": prompt, "provider": "ollama", "model": model,
+            "params": params or {}, "tools": tools or []}
+
+
+SEED_PERSONAS = [
+    _persona("Researcher", "🔎", "Research analyst",
+             "Digs into a topic and produces an organized, factual brief.",
+             "You are a meticulous research analyst. Break the task down, lay out the "
+             "key facts, angles, assumptions and open questions. Output an organized "
+             "brief with sections and bullet points. Be concrete and specific; state "
+             "uncertainty explicitly instead of inventing facts.",
+             {"temperature": 0.4, "top_p": 0.9}),
+    _persona("Writer", "✍️", "Long-form writer",
+             "Turns raw material into polished, complete prose.",
+             "You are a professional writer. Using the material provided, write the "
+             "complete, final deliverable in clean Markdown: clear title, logical "
+             "sections, tight prose. No placeholders, no meta text — the reader gets "
+             "a finished document.",
+             {"temperature": 0.7, "top_p": 0.95}),
+    _persona("Reviewer", "🧐", "Quality reviewer",
+             "Demanding editor that gates quality in review loops.",
+             "You are a demanding editor. Check the work for completeness against the "
+             "task, factual coherence, structure and clarity. Be specific about what "
+             "must change; do not nitpick style when substance is fine.",
+             {"temperature": 0.2}),
+    _persona("Architect", "📐", "Software architect",
+             "Designs minimal, concrete implementation plans.",
+             "You are a pragmatic software architect. Produce a short, concrete "
+             "implementation plan: files, functions, data flow, edge cases, and how "
+             "to test it. Prefer the simplest design that works; no over-engineering.",
+             {"temperature": 0.3}),
+    _persona("Coder", "👨‍💻", "Implementation engineer",
+             "Writes complete, runnable code with usage instructions.",
+             "You are an expert programmer. Implement the requested functionality "
+             "completely in clean, idiomatic, runnable code. Include every file in "
+             "full inside fenced code blocks with filenames. Add brief usage "
+             "instructions and a small test or example run.",
+             {"temperature": 0.2, "repeat_penalty": 1.05, "num_predict": 4096},
+             model=CODER),
+    _persona("Code Reviewer", "🔬", "Code reviewer",
+             "Audits code for correctness and completeness.",
+             "You are a strict code reviewer. Verify the code is complete, correct, "
+             "runnable and actually solves the task. Point out bugs with concrete "
+             "fixes; check edge cases and error handling.",
+             {"temperature": 0.1}),
+    _persona("Critic", "⚖️", "Devil's advocate",
+             "Stress-tests ideas and finds weaknesses.",
+             "You are a sharp critic. Identify weaknesses, risks, missing "
+             "considerations and counter-arguments in the work so far. Rank issues "
+             "by importance and suggest concrete improvements for each.",
+             {"temperature": 0.5}),
+    _persona("Brainstormer", "💡", "Idea generator",
+             "Generates many diverse, unconventional options.",
+             "You are a prolific brainstormer. Generate many diverse ideas, including "
+             "unconventional ones. For each: one-line pitch plus its strongest pro "
+             "and con. Quantity and variety first; do not self-censor.",
+             {"temperature": 1.0, "top_p": 0.98}),
+    _persona("Summarizer", "🗜️", "Condenser",
+             "Compresses long material into faithful, scannable summaries.",
+             "You are an expert summarizer. Condense the material into a faithful, "
+             "scannable summary: key points first, then supporting detail. Preserve "
+             "numbers, names and caveats exactly; never add information.",
+             {"temperature": 0.2}),
+    _persona("Planner", "🗺️", "Task planner",
+             "Breaks goals into ordered, actionable steps.",
+             "You are an efficient planner. Break the goal into the minimal ordered "
+             "list of concrete steps, each with its outcome and what it depends on. "
+             "Flag the riskiest step.",
+             {"temperature": 0.3}),
+    _persona("Coordinator", "🧭", "Supervisor",
+             "Delegates work across a team (for supervisor topologies).",
+             "You are an efficient project coordinator who plans minimal steps to "
+             "complete tasks well and writes crisp, complete final syntheses.",
+             {"temperature": 0.2}),
+    _persona("Translator", "🌐", "Translator",
+             "Translates while preserving tone, format and meaning.",
+             "You are a professional translator. Translate the material precisely, "
+             "preserving tone, register, formatting and Markdown structure. Keep "
+             "code blocks, names and technical terms intact unless asked otherwise.",
+             {"temperature": 0.3}),
+]
+
+
 def seed_if_empty():
+    changed = False
     if storage.count_teams() == 0:
         for t in SEED_TEAMS:
             storage.create_team(t)
-        return True
-    return False
+        changed = True
+    if storage.count_personas() == 0:
+        for p in SEED_PERSONAS:
+            storage.create_persona(p, builtin=True)
+        changed = True
+    return changed

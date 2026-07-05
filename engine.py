@@ -15,8 +15,11 @@ Local 7B models produce unreliable JSON, so all routing parses defensively
 and always falls back to something sane instead of crashing the run.
 """
 import json
+import operator
 import re
-from typing import Optional
+import threading
+import time
+from typing import Annotated, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
@@ -34,7 +37,8 @@ class RunCancelled(Exception):
 
 class TeamState(TypedDict, total=False):
     task: str
-    history: list          # [{agent, content}]
+    # append-only via reducer so parallel branches can write concurrently
+    history: Annotated[list, operator.add]   # [{agent, content, ts}]
     feedback: Optional[str]
     revision: int
     supervisor_steps: int
@@ -52,7 +56,7 @@ def _history_block(history: list) -> str:
     if not history:
         return "(no previous work yet)"
     parts = []
-    for h in history:
+    for h in sorted(history, key=lambda x: x.get("ts", 0)):
         parts.append(f"### Output from {h['agent']}\n{h['content']}")
     return "\n\n".join(parts)
 
@@ -60,7 +64,8 @@ def _history_block(history: list) -> str:
 class TeamRunner:
     """Runs one team on one task, emitting events via `emit(type, **kw)`."""
 
-    def __init__(self, team: dict, task: str, workspace: str, emit, cancel_event):
+    def __init__(self, team: dict, task: str, workspace: str, emit, cancel_event,
+                 max_concurrency: int = 1):
         self.team = team
         self.task = task
         self.workspace = workspace
@@ -68,15 +73,18 @@ class TeamRunner:
         self.cancel = cancel_event
         self.agents = {a["name"]: a for a in team["agents"]}
         self.settings = team.get("settings", {})
+        # Gates concurrent LLM calls: >1 only when the parallel toggle is on
+        # and the hardware assessment says the machine can take it.
+        self.llm_gate = threading.Semaphore(max(1, max_concurrency))
 
     # ---------------- LLM helpers ----------------
 
     def _llm_for(self, agent: dict):
-        return make_llm(
-            agent.get("provider", "ollama"),
-            agent["model"],
-            temperature=float(agent.get("temperature", 0.7)),
-        )
+        params = dict(agent.get("params") or {})
+        # Back-compat: older teams stored temperature at the top level.
+        if "temperature" not in params and agent.get("temperature") is not None:
+            params["temperature"] = agent["temperature"]
+        return make_llm(agent.get("provider", "ollama"), agent["model"], params)
 
     def _check_cancel(self):
         if self.cancel.is_set():
@@ -94,7 +102,10 @@ class TeamRunner:
         if tool_list:
             llm = llm.bind_tools(tool_list)
 
-        msgs = list(messages)
+        with self.llm_gate:
+            return self._tool_loop(agent, llm, tool_map, list(messages))
+
+    def _tool_loop(self, agent: dict, llm, tool_map: dict, msgs: list) -> str:
         for _round in range(MAX_TOOL_ROUNDS + 1):
             self._check_cancel()
             full = None
@@ -164,7 +175,7 @@ class TeamRunner:
                 HumanMessage(content=user),
             ])
             self.emit("agent_end", agent=name, content=content)
-            return {"history": state.get("history", []) + [{"agent": name, "content": content}]}
+            return {"history": [{"agent": name, "content": content, "ts": time.time()}]}
 
         return node
 
@@ -217,7 +228,7 @@ class TeamRunner:
             verdict = "approved" if approved else "revise"
             self.emit("agent_end", agent=rev_name, content=content,
                       meta={"verdict": verdict})
-            out = {"history": hist + [{"agent": rev_name, "content": content}]}
+            out = {"history": [{"agent": rev_name, "content": content, "ts": time.time()}]}
             if approved or state.get("revision", 0) >= max_rev:
                 # final = last worker output before the review
                 worker_outs = [h for h in hist if h["agent"] != rev_name]
@@ -340,6 +351,63 @@ class TeamRunner:
         g.add_edge("_synthesize", END)
         return g.compile()
 
+    # ---------------- custom graph topology ----------------
+
+    def _build_graph(self):
+        """Build an arbitrary DAG from team['graph'] = {nodes, edges}.
+
+        Nodes: [{id, agent}] where agent references a team agent by name.
+        Edges: [{source, target}] using node ids plus the virtual ids
+        'start' and 'end'. Fan-out runs branches in parallel supersteps
+        (actual LLM concurrency is gated by the parallel semaphore); fan-in
+        waits for all incoming branches.
+        """
+        spec = self.team.get("graph") or {}
+        nodes = {n["id"]: n for n in spec.get("nodes", [])}
+        edges = spec.get("edges", [])
+
+        g = StateGraph(TeamState)
+        for nid, n in nodes.items():
+            agent = self.agents[n["agent"]]
+            g.add_node(nid, self._worker_node(agent))
+
+        # Group incoming edges per target: a list source means "wait for all".
+        incoming = {}
+        for e in edges:
+            incoming.setdefault(e["target"], []).append(e["source"])
+
+        end_sources = []
+        for target, sources in incoming.items():
+            srcs = [START if s == "start" else s for s in sources]
+            if target == "end":
+                end_sources = srcs
+                continue
+            g.add_edge(srcs if len(srcs) > 1 else srcs[0], target)
+
+        def finalize(state: TeamState):
+            hist = sorted(state.get("history", []), key=lambda x: x.get("ts", 0))
+            if not hist:
+                return {"final": ""}
+            # Final = latest output of each node that feeds 'end'.
+            end_agents = [nodes[s]["agent"] for s in end_sources if s in nodes]
+            tail = []
+            for a in end_agents:
+                matches = [h for h in hist if h["agent"] == a]
+                if matches:
+                    tail.append(matches[-1])
+            tail = tail or hist[-1:]
+            if len(tail) == 1:
+                return {"final": tail[-1]["content"]}
+            return {"final": "\n\n".join(
+                f"## {h['agent']}\n\n{h['content']}" for h in tail)}
+
+        g.add_node("_finalize", finalize)
+        if end_sources:
+            g.add_edge(end_sources if len(end_sources) > 1 else end_sources[0],
+                       "_finalize")
+        g.add_edge("_finalize", END)
+        return g.compile()
+
     def _build_single(self):
         agent = self.team["agents"][0]
         g = StateGraph(TeamState)
@@ -360,7 +428,9 @@ class TeamRunner:
         topology = self.team.get("topology", "pipeline")
         if not self.team.get("agents"):
             raise ValueError("Team has no agents")
-        if topology == "single" or len(self.team["agents"]) == 1:
+        if topology == "graph":
+            graph = self._build_graph()
+        elif topology == "single" or len(self.team["agents"]) == 1:
             graph = self._build_single()
         elif topology == "supervisor":
             graph = self._build_supervisor()

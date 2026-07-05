@@ -105,9 +105,18 @@ class RunManager:
             active.publish(event)
 
         try:
+            concurrency = 1
+            if team.get("settings", {}).get("parallel"):
+                try:
+                    import sysinfo
+                    concurrency = sysinfo.assess()["parallel"]["capacity"]
+                except Exception:  # noqa: BLE001 - fall back to serial
+                    concurrency = 1
             emit("run_start", content=task,
-                 meta={"team": team["name"], "topology": team.get("topology")})
-            runner = TeamRunner(team, task, workspace, emit, active.cancel_event)
+                 meta={"team": team["name"], "topology": team.get("topology"),
+                       "concurrency": concurrency})
+            runner = TeamRunner(team, task, workspace, emit, active.cancel_event,
+                                max_concurrency=concurrency)
             final = runner.run()
             # Save the deliverable as an artifact automatically.
             try:
