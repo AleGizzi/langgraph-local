@@ -1,0 +1,23 @@
+# systemd user service for Local Agents Studio
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/local-agents-studio.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now local-agents-studio
+#
+# Logs:  journalctl --user -u local-agents-studio -f
+[Unit]
+Description=Local Agents Studio (LangGraph UI for local LLMs)
+After=network.target
+
+[Service]
+Type=exec
+WorkingDirectory=%h/langgraph-local
+ExecStart=%h/langgraph-local/run.sh
+Restart=on-failure
+RestartSec=3
+Environment=PORT=5860
+
+[Install]
+WantedBy=default.target
