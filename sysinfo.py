@@ -274,18 +274,27 @@ def assess():
                   if c["verdict"] == "great" and c["tag"] == "general"), None)
 
     # Parallel capacity: how many ~typical loaded models fit in RAM at once,
-    # also capped by CPU cores (inference is compute-bound).
+    # capped by CPU cores (inference is compute-bound) and — critically — by
+    # the GPU: with partial offload (model bigger than VRAM), more than 2
+    # concurrent generations thrash the runner (observed: 3rd request stalls).
     typical = max((i["size_gb"] for i in installed), default=4.7)
     by_ram = int(max(1, (ram - OS_RESERVE_GB) // (typical + KV_OVERHEAD_GB)))
     by_cpu = max(1, hw["cores"] // 4)
-    capacity = max(1, min(by_ram, by_cpu, 4))
+    caps = [by_ram, by_cpu, 4]
+    gpu_note = ""
+    if gpu and gpu.get("vram_total_gb") and gpu["vram_total_gb"] < typical + KV_OVERHEAD_GB:
+        caps.append(2)
+        gpu_note = (f" GPU has {gpu['vram_total_gb']} GB VRAM so models are "
+                    "partially offloaded; more than 2 concurrent generations "
+                    "would thrash it.")
+    capacity = max(1, min(caps))
     return {
         "installed": installed, "catalog": catalog, "sweet_spot": sweet,
         "parallel": {
             "capacity": capacity,
             "reason": (f"{ram} GB RAM fits ~{by_ram} loaded {typical} GB models; "
                        f"{hw['cores']} CPU threads support ~{by_cpu} concurrent "
-                       f"generations. Recommended max: {capacity}."),
+                       f"generations.{gpu_note} Recommended max: {capacity}."),
         },
         "notes": [
             f"Rule of thumb: a Q4 model needs its file size in RAM plus ~{KV_OVERHEAD_GB:.0f} GB for context.",

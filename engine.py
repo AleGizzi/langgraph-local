@@ -25,7 +25,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
-from providers import make_llm
+from providers import LLM_IDLE_TIMEOUT, make_llm
 from tools import resolve_tools
 
 MAX_TOOL_ROUNDS = 5
@@ -103,7 +103,18 @@ class TeamRunner:
             llm = llm.bind_tools(tool_list)
 
         with self.llm_gate:
-            return self._tool_loop(agent, llm, tool_map, list(messages))
+            try:
+                return self._tool_loop(agent, llm, tool_map, list(messages))
+            except Exception as e:  # noqa: BLE001 - translate stalls to a clear error
+                name = type(e).__name__.lower()
+                if "timeout" in name or "timed out" in str(e).lower():
+                    raise RuntimeError(
+                        f"{agent['name']}: model stream stalled (no output for "
+                        f"{LLM_IDLE_TIMEOUT:.0f}s). The model server is likely "
+                        "overloaded — try fewer parallel agents, a smaller model, "
+                        "or a smaller context window."
+                    ) from e
+                raise
 
     def _tool_loop(self, agent: dict, llm, tool_map: dict, msgs: list) -> str:
         for _round in range(MAX_TOOL_ROUNDS + 1):

@@ -91,9 +91,17 @@ def clean_params(raw: dict) -> dict:
     return out
 
 
+# Watchdog: if a streaming call produces no chunk for this many seconds the
+# call is aborted instead of hanging the run forever (observed with parallel
+# 7B requests thrashing Ollama on small GPUs).
+LLM_IDLE_TIMEOUT = float(os.environ.get("LLM_IDLE_TIMEOUT", "180"))
+
+
 def make_llm(provider: str, model: str, params: dict = None):
     """Build a LangChain chat model for the given local provider."""
+    import httpx
     p = clean_params(params or {})
+    idle = httpx.Timeout(LLM_IDLE_TIMEOUT, connect=10)
     if provider == "ollama":
         from langchain_ollama import ChatOllama
         return ChatOllama(
@@ -104,14 +112,13 @@ def make_llm(provider: str, model: str, params: dict = None):
             top_k=p.get("top_k"),
             repeat_penalty=p.get("repeat_penalty"),
             num_ctx=p.get("num_ctx", 8192),
-            num_predict=p.get("num_predict"),
+            num_predict=p.get("num_predict", 2048),
             seed=p.get("seed"),
+            client_kwargs={"timeout": idle},
         )
     if provider == "lmstudio":
         from langchain_openai import ChatOpenAI
         kwargs = {}
-        if "num_predict" in p:
-            kwargs["max_tokens"] = p["num_predict"]
         if "seed" in p:
             kwargs["seed"] = p["seed"]
         return ChatOpenAI(
@@ -120,7 +127,9 @@ def make_llm(provider: str, model: str, params: dict = None):
             model=model,
             temperature=p.get("temperature", 0.7),
             top_p=p.get("top_p"),
+            max_tokens=p.get("num_predict", 2048),
             streaming=True,
+            timeout=idle,
             **kwargs,
         )
     raise ValueError(f"Unknown provider: {provider}")
