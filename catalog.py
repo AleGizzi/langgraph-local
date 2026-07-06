@@ -189,6 +189,98 @@ def refresh(blocking: bool = True):
     return True
 
 
+# ---------------- categories, ranking, dream team (all heuristic, no AI) ----
+
+CATEGORIES = {
+    "general": {"icon": "💬", "label": "General chat & writing"},
+    "coding": {"icon": "💻", "label": "Coding"},
+    "thinking": {"icon": "🧠", "label": "Thinking / reasoning"},
+    "vision": {"icon": "👁️", "label": "Vision (images)"},
+    "agents": {"icon": "🛠️", "label": "Agents & tool use"},
+    "fast": {"icon": "⚡", "label": "Tiny & fast"},
+}
+
+_CODING_RE = re.compile(
+    r"\bcoder\b|codellama|codestral|starcoder|codegemma|devstral|deepseek-coder|"
+    r"codeqwen|\bcode\b|\bcoding\b|\bprogramming\b", re.I)
+_THINKING_RE = re.compile(
+    r"deepseek-r1|qwq|reason|thinking|\bthink\b|o1|cogito|phi4-reasoning|"
+    r"exaone-deep|openthinker|marco-o1", re.I)
+
+
+def classify(entry: dict) -> list:
+    """Assign use-case categories from registry capabilities + name/description."""
+    caps = [c.lower() for c in entry.get("capabilities") or []]
+    text = f"{entry.get('base', '')} {entry.get('description', '')}"
+    cats = []
+    if "vision" in caps:
+        cats.append("vision")
+    if "thinking" in caps or _THINKING_RE.search(text):
+        cats.append("thinking")
+    if _CODING_RE.search(text):
+        cats.append("coding")
+    if "tools" in caps:
+        cats.append("agents")
+    params = entry.get("params_b")
+    if params is not None and params <= 4:
+        cats.append("fast")
+    if "coding" not in cats and "vision" not in cats:
+        cats.append("general")
+    return cats
+
+
+def annotate(models: list) -> dict:
+    """Add categories + per-category family rank to each model, and build the
+    dream team: the best model for each use case that runs on this machine.
+
+    Ranking = family popularity (pulls) among families with at least one
+    runnable variant; dream-team pick = largest variant of the top family
+    whose verdict is 'great' (falling back to 'ok').
+    """
+    for m in models:
+        m["categories"] = classify(m)
+
+    fam_rank = {}
+    dream = []
+    for cat in CATEGORIES:
+        fams = {}
+        for m in models:
+            if cat in m["categories"]:
+                fams.setdefault(m["base"], {"pulls": m.get("pulls", 0), "models": []})
+                fams[m["base"]]["models"].append(m)
+        runnable = {b: f for b, f in fams.items()
+                    if any(x.get("verdict") in ("great", "ok") for x in f["models"])}
+        ordered = sorted(runnable, key=lambda b: -runnable[b]["pulls"])
+        for i, base in enumerate(ordered):
+            fam_rank[(cat, base)] = i + 1
+        if ordered:
+            top = runnable[ordered[0]]["models"]
+            pick = max((x for x in top if x.get("verdict") == "great" and x.get("params_b")),
+                       key=lambda x: x["params_b"], default=None)
+            fallback = "great"
+            if not pick:
+                fallback = "ok"
+                pick = max((x for x in top if x.get("verdict") == "ok" and x.get("params_b")),
+                           key=lambda x: x["params_b"], default=None)
+            if pick:
+                dream.append({
+                    "category": cat, **CATEGORIES[cat], "model": pick["name"],
+                    "size_gb": pick["size_gb"], "verdict": pick["verdict"],
+                    "est_tok_s": pick.get("est_tok_s"),
+                    "installed": pick.get("installed", False),
+                    "reason": (f"Most popular {CATEGORIES[cat]['label'].lower()} family "
+                               f"on Ollama ({pick.get('pulls_label', '?')} pulls) — "
+                               f"{pick['name'].split(':')[-1]} is the largest variant that "
+                               + ("runs great on this PC."
+                                  if fallback == "great" else "runs well on this PC.")),
+                })
+
+    for m in models:
+        m["ranks"] = {c: fam_rank[(c, m["base"])] for c in m["categories"]
+                      if (c, m["base"]) in fam_rank}
+    return {"dream_team": dream}
+
+
 def load_cache():
     try:
         with open(CACHE_PATH, encoding="utf-8") as f:

@@ -314,6 +314,9 @@ def catalog_get():
             m["est_tok_s"] = None
         m["installed"] = m["name"] in installed or (
             m["name"].endswith(":latest") and m["name"][:-7] in installed)
+    extra = catalog.annotate(data["models"])
+    data["dream_team"] = extra["dream_team"]
+    data["categories"] = catalog.CATEGORIES
     runnable = [m for m in data["models"] if m.get("verdict") in ("great", "ok", "tight")]
     sweet = max((m for m in data["models"] if m.get("verdict") == "great"
                  and m.get("params_b")), key=lambda m: m["params_b"], default=None)

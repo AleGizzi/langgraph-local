@@ -86,6 +86,16 @@ export default function Settings() {
       </div>
 
       <div className="card section-card">
+        <h2>🏆 Suggested dream team for this PC</h2>
+        <div className="sub">
+          The top-tier model for each job, picked from the live catalog: the most
+          popular family in each category, at the largest size that runs comfortably
+          on your hardware. Install the missing ones and assign them to your agents.
+        </div>
+        <CatalogTable dreamOnly />
+      </div>
+
+      <div className="card section-card">
         <h2>🧭 Every model that can run on this PC</h2>
         <div className="sub">
           The full Ollama library, checked against your hardware. The list updates

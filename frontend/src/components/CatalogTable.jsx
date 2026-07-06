@@ -9,9 +9,10 @@ function ago(ts) {
   return `${Math.round(h / 24)} days ago`;
 }
 
-export default function CatalogTable({ compact = false }) {
+export default function CatalogTable({ compact = false, withDreamTeam = false, dreamOnly = false }) {
   const [data, setData] = useState(null);
   const [q, setQ] = useState("");
+  const [cat, setCat] = useState("all");
   const [showAll, setShowAll] = useState(false);
   const [target, setTarget] = useState("ollama");
   const [installs, setInstalls] = useState({});
@@ -69,15 +70,77 @@ export default function CatalogTable({ compact = false }) {
 
   const needle = q.trim().toLowerCase();
   let rows = data.models.filter((m) =>
-    !needle ||
-    m.name.toLowerCase().includes(needle) ||
-    (m.description || "").toLowerCase().includes(needle) ||
-    (m.capabilities || []).some((c) => c.toLowerCase().includes(needle)));
+    (cat === "all" || (m.categories || []).includes(cat)) &&
+    (!needle ||
+      m.name.toLowerCase().includes(needle) ||
+      (m.description || "").toLowerCase().includes(needle) ||
+      (m.capabilities || []).some((c) => c.toLowerCase().includes(needle))));
+  if (cat !== "all") {
+    rows = [...rows].sort((a, b) =>
+      (a.ranks?.[cat] || 9999) - (b.ranks?.[cat] || 9999) ||
+      (b.params_b || 0) - (a.params_b || 0));
+  }
+  const medal = (m) => {
+    if (cat === "all") return null;
+    const r = m.ranks?.[cat];
+    return r === 1 ? "🥇" : r === 2 ? "🥈" : r === 3 ? "🥉" : null;
+  };
   const limit = compact ? 12 : 40;
   const shown = showAll || needle ? rows : rows.slice(0, limit);
 
+  const dreamCard = (t) => {
+    const st = installs[`ollama::${t.model}`] || installs[`lmstudio::${t.model}`];
+    const active = st && !st.done;
+    return (
+      <div key={t.category} className="dream-card">
+        <div className="dream-role">{t.icon} {t.label}</div>
+        <div className="dream-model mono">{t.model}</div>
+        <div className="dream-meta">
+          {t.size_gb} GB · {t.est_tok_s ? `~${t.est_tok_s} tok/s` : ""} ·{" "}
+          <span className={"verdict " + t.verdict}>{t.verdict}</span>
+        </div>
+        <div className="param-hint">{t.reason}</div>
+        <div style={{ marginTop: 8 }}>
+          {t.installed ? <span className="badge-installed">installed</span>
+            : active ? (
+              <div className="install-progress" title={st.status}>
+                <div className="install-progress-fill" style={{ width: `${st.progress || 2}%` }} />
+                <span>{st.progress ? `${Math.round(st.progress)}%` : "…"}</span>
+              </div>
+            ) : (
+              <button className="btn sm" onClick={() => install({ name: t.model })}>⬇ Install</button>
+            )}
+        </div>
+      </div>
+    );
+  };
+
+  if (dreamOnly) {
+    return (
+      <div className="dream-grid">
+        {(data.dream_team || []).map(dreamCard)}
+      </div>
+    );
+  }
+
   return (
     <div>
+      {withDreamTeam && (data.dream_team || []).length > 0 && (
+        <div className="dream-grid">
+          {(data.dream_team || []).map(dreamCard)}
+        </div>
+      )}
+      <div className="cat-chips">
+        <span className={"tool-tag" + (cat === "all" ? " on" : "")}
+          onClick={() => setCat("all")}>All</span>
+        {Object.entries(data.categories || {}).map(([key, c]) => (
+          <span key={key} className={"tool-tag" + (cat === key ? " on" : "")}
+            onClick={() => setCat(cat === key ? "all" : key)}>
+            {c.icon} {c.label}
+          </span>
+        ))}
+        {cat !== "all" && <span className="help">ranked by family popularity among models that run here — 🥇🥈🥉 mark the top tiers</span>}
+      </div>
       <div className="catalog-bar">
         <input type="text" className="catalog-search" placeholder={`Search ${data.summary.total} models…`}
           value={q} onChange={(e) => setQ(e.target.value)} />
@@ -111,8 +174,14 @@ export default function CatalogTable({ compact = false }) {
               return (
                 <tr key={m.name}>
                   <td>
+                    {medal(m) && <span style={{ marginRight: 5 }}>{medal(m)}</span>}
                     <span className="mono" style={{ fontFamily: "var(--mono)", fontSize: 12.5 }}>{m.name}</span>
-                    {(m.capabilities || []).map((c) => <span key={c} className="chip" style={{ marginLeft: 6 }}>{c}</span>)}
+                    {(m.categories || []).filter((c) => c !== "general" || m.categories.length === 1).map((c) => (
+                      <span key={c} className="chip" style={{ marginLeft: 6 }}
+                        title={data.categories?.[c]?.label}>
+                        {data.categories?.[c]?.icon} {c}
+                      </span>
+                    ))}
                     {!compact && m.description && <div className="param-hint" style={{ maxWidth: 460 }}>{m.description}</div>}
                   </td>
                   <td>{m.size_gb ? `${m.size_gb} GB${m.exact ? "" : " ~"}` : "?"}</td>

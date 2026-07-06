@@ -475,3 +475,14 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
   transition: width .4s ease;
 }
 .install-progress span { position: relative; z-index: 1; }
+
+/* ---------------- dream team & category chips ---------------- */
+.cat-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.dream-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.dream-card {
+  border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+  background: var(--surface-2); display: flex; flex-direction: column; gap: 4px;
+}
+.dream-role { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); }
+.dream-model { font-family: var(--mono); font-size: 14.5px; font-weight: 700; color: var(--accent); }
+.dream-meta { font-size: 12.5px; color: var(--text-2); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
