@@ -103,18 +103,28 @@ class TeamRunner:
             llm = llm.bind_tools(tool_list)
 
         with self.llm_gate:
-            try:
-                return self._tool_loop(agent, llm, tool_map, list(messages))
-            except Exception as e:  # noqa: BLE001 - translate stalls to a clear error
-                name = type(e).__name__.lower()
-                if "timeout" in name or "timed out" in str(e).lower():
-                    raise RuntimeError(
-                        f"{agent['name']}: model stream stalled (no output for "
-                        f"{LLM_IDLE_TIMEOUT:.0f}s). The model server is likely "
-                        "overloaded — try fewer parallel agents, a smaller model, "
-                        "or a smaller context window."
-                    ) from e
-                raise
+            last_err = None
+            for attempt in (1, 2):
+                try:
+                    return self._tool_loop(agent, llm, tool_map, list(messages))
+                except Exception as e:  # noqa: BLE001 - translate stalls to a clear error
+                    name = type(e).__name__.lower()
+                    if not ("timeout" in name or "timed out" in str(e).lower()):
+                        raise
+                    last_err = e
+                    if attempt == 1:
+                        # Ollama keeps the evaluated prompt prefix cached, so a
+                        # retry resumes much faster than the first attempt.
+                        self.emit("decision", agent=agent["name"],
+                                  content=f"Stream stalled after {LLM_IDLE_TIMEOUT:.0f}s "
+                                          "with no output — retrying once…")
+                        self._check_cancel()
+            raise RuntimeError(
+                f"{agent['name']}: model stream stalled twice (no output for "
+                f"{LLM_IDLE_TIMEOUT:.0f}s). The model server is likely overloaded — "
+                "try fewer parallel agents, a smaller model, or a smaller context "
+                "window."
+            ) from last_err
 
     def _tool_loop(self, agent: dict, llm, tool_map: dict, msgs: list) -> str:
         for _round in range(MAX_TOOL_ROUNDS + 1):

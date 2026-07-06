@@ -93,8 +93,10 @@ def clean_params(raw: dict) -> dict:
 
 # Watchdog: if a streaming call produces no chunk for this many seconds the
 # call is aborted instead of hanging the run forever (observed with parallel
-# 7B requests thrashing Ollama on small GPUs).
-LLM_IDLE_TIMEOUT = float(os.environ.get("LLM_IDLE_TIMEOUT", "180"))
+# 7B requests thrashing Ollama on small GPUs). Generous by default because
+# evaluating a long prompt on CPU emits nothing for minutes before the first
+# token appears.
+LLM_IDLE_TIMEOUT = float(os.environ.get("LLM_IDLE_TIMEOUT", "420"))
 
 
 def make_llm(provider: str, model: str, params: dict = None):
