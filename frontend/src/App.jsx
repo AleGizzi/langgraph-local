@@ -34,8 +34,15 @@ const NAV = [
   ["settings", "⚙️", "Settings"],
 ];
 
+function initialTheme() {
+  const saved = localStorage.getItem("theme");
+  if (saved === "dark" || saved === "light") return saved;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 export default function App() {
   const route = useHashRoute();
+  const [theme, setTheme] = useState(initialTheme);
   const [models, setModels] = useState({ ollama: [], lmstudio: [] });
   const [tools, setTools] = useState({ builtin: [], custom: [] });
   const [skills, setSkills] = useState([]);
@@ -46,6 +53,11 @@ export default function App() {
     api("/tools").then(setTools).catch(() => {});
     api("/skills").then(setSkills).catch(() => {});
   };
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     api("/models").then(setModels).catch(() => {});
@@ -72,7 +84,7 @@ export default function App() {
   else view = <Teams />;
 
   return (
-    <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs }}>
+    <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs, theme }}>
       <div id="app">
         <aside className="sidebar">
           <div className="logo">
@@ -99,6 +111,14 @@ export default function App() {
                 </span>
               </div>
             ))}
+            <button
+              className="btn ghost theme-toggle"
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              {theme === "dark" ? "☀️" : "🌙"}
+              <span className="txt">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+            </button>
           </div>
         </aside>
         <main className="main"><div className="page">{view}</div></main>

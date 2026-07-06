@@ -4,6 +4,7 @@ import {
   applyNodeChanges, applyEdgeChanges, addEdge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { useApp } from "../App.jsx";
 
 function AgentNode({ data, selected }) {
   return (
@@ -38,6 +39,7 @@ const nodeTypes = { agent: AgentNode, start: StartNode, end: EndNode };
 /* graph def {nodes:[{id,agent}], edges:[{source,target}], positions:{id:{x,y}}}
    <-> React Flow state, agents = team agent list for labels/adding. */
 export default function GraphEditor({ agents, graph, onChange }) {
+  const { theme } = useApp();
   const counter = useRef(0);
   const agentByName = useMemo(
     () => Object.fromEntries((agents || []).map((a) => [a.name, a])), [agents]);
@@ -127,6 +129,7 @@ export default function GraphEditor({ agents, graph, onChange }) {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           fitView
+          colorMode={theme || "light"}
           proOptions={{ hideAttribution: true }}
           deleteKeyCode={["Delete", "Backspace"]}
         >
