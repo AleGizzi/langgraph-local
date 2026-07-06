@@ -164,6 +164,31 @@ def load_custom_tools():
     return by_name, files
 
 
+def validate_tool_code(code: str):
+    """Load tool code from a temp file. Returns (tool_names, error)."""
+    import importlib.util
+    import tempfile
+    from langchain_core.tools import BaseTool
+
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False,
+                                     encoding="utf-8") as f:
+        f.write(code)
+        path = f.name
+    try:
+        spec = importlib.util.spec_from_file_location("agents_wizard_check", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        names = [o.name for o in vars(mod).values() if isinstance(o, BaseTool)]
+        if not names:
+            return [], ("No tool found. Decorate a function with @tool from "
+                        "langchain_core.tools.")
+        return names, None
+    except Exception as e:  # noqa: BLE001 - generated code can fail arbitrarily
+        return [], f"{type(e).__name__}: {e}"
+    finally:
+        os.unlink(path)
+
+
 def full_catalog() -> dict:
     """Everything the UI and validators need to know about tools."""
     custom_by_name, files = load_custom_tools()

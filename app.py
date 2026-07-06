@@ -215,6 +215,36 @@ def tool_file_delete(filename):
     return jsonify({"ok": True})
 
 
+# ---------------- wizard ----------------
+
+@app.post("/api/wizard")
+def wizard_generate():
+    import wizard
+    body = request.get_json(force=True) or {}
+    kind = body.get("kind")
+    req = (body.get("request") or "").strip()
+    if kind not in ("skill", "tool"):
+        abort(400, "kind must be 'skill' or 'tool'")
+    if not req:
+        abort(400, "describe what you need")
+    provider = body.get("provider") if body.get("provider") in ("ollama", "lmstudio") else "ollama"
+    model = body.get("model") or ""
+    if not model:
+        abort(400, "model is required")
+    try:
+        if kind == "skill":
+            draft = wizard.draft_skill(provider, model, req,
+                                       current=body.get("current"),
+                                       feedback=body.get("feedback"))
+        else:
+            draft = wizard.draft_tool(provider, model, req,
+                                      current_code=body.get("current_code"),
+                                      feedback=body.get("feedback"))
+    except Exception as e:  # noqa: BLE001 - surface LLM/provider errors cleanly
+        abort(502, f"wizard generation failed: {type(e).__name__}: {e}")
+    return jsonify({"kind": kind, "draft": draft})
+
+
 # ---------------- skills ----------------
 
 def _validate_skill(data: dict) -> dict:

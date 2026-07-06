@@ -29,6 +29,12 @@ powered by **Ollama** and/or **LM Studio**. No cloud, no API keys, no telemetry.
 - **Settings page**: hardware report (CPU / RAM / GPU / VRAM / disk) and a
   **"can my PC run it?" model assessment** — verdicts and speed estimates for every
   installed model and a curated catalog, with a recommended sweet-spot model.
+- **Skills & Tools page**: skills are reusable prompt directives attachable to any
+  agent; tools are Python functions agents call — builtin or custom `.py` files in
+  `custom_tools/` with an in-UI editor that validates on save. Both can be created
+  manually or with the **AI wizard**: describe what you need in plain language and
+  a local model drafts it (tool code is load-validated with one auto-fix round);
+  you review, refine and save.
 - **Live streaming**: token-by-token output per agent over SSE, with tool calls,
   routing decisions and revision loops visualized as they happen.
 - **Tools**: calculator, current datetime, HTTP fetch, and sandboxed file read/write

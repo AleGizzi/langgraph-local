@@ -1,10 +1,95 @@
 import React, { useEffect, useState } from "react";
 import { api, toast } from "../lib/api.js";
 import { useApp } from "../App.jsx";
+import { ModelSelect } from "../components/AgentFields.jsx";
+
+/* ---------------- AI wizard panel ---------------- */
+
+function pickModel(models, preferCoder) {
+  const lists = [["ollama", models.ollama || []], ["lmstudio", models.lmstudio || []]];
+  for (const [prov, list] of lists) {
+    if (preferCoder) {
+      const coder = list.find((m) => /coder/i.test(m) && !/r1|think/i.test(m));
+      if (coder) return { provider: prov, model: coder };
+    }
+    const general = list.find((m) => /^(qwen|llama|mistral|gemma)/i.test(m) && !/r1|coder|think/i.test(m));
+    if (general) return { provider: prov, model: general };
+    if (list.length) return { provider: prov, model: list[0] };
+  }
+  return { provider: "ollama", model: "" };
+}
+
+function WizardPanel({ kind, buildPayload, onDraft }) {
+  const { models } = useApp();
+  const [sel, setSel] = useState(() => pickModel(models, kind === "tool"));
+  const [request, setRequest] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [generated, setGenerated] = useState(false);
+
+  useEffect(() => {
+    if (!sel.model) setSel(pickModel(models, kind === "tool"));
+  }, [models]);
+
+  const generate = async () => {
+    if (!request.trim()) { toast("Describe what you need first", true); return; }
+    if (!sel.model) { toast("No local model available", true); return; }
+    setBusy(true);
+    try {
+      const body = {
+        kind, request: request.trim(),
+        provider: sel.provider, model: sel.model,
+        ...(generated ? { feedback: feedback.trim() || "improve it", ...buildPayload() } : {}),
+      };
+      const r = await api("/wizard", { method: "POST", body });
+      onDraft(r.draft);
+      setGenerated(true);
+      setFeedback("");
+      toast(generated ? "Draft refined — review below" : "Draft ready — review and edit below");
+    } catch (e) { toast(e.message, true); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="wizard-box">
+      <div className="wizard-head">🪄 AI wizard
+        <span className="help">a local model drafts it; you review, refine and save</span>
+      </div>
+      <div className="field">
+        <label>{kind === "skill"
+          ? "What should agents with this skill do?"
+          : "What should this tool be able to do?"}</label>
+        <textarea rows={2} value={request} disabled={generated}
+          placeholder={kind === "skill"
+            ? "e.g. always answer in Spanish, keeping technical terms in English"
+            : "e.g. convert temperatures between celsius and fahrenheit"}
+          onChange={(e) => setRequest(e.target.value)} />
+      </div>
+      {generated && (
+        <div className="field">
+          <label>Refine — what should change?</label>
+          <textarea rows={2} value={feedback}
+            placeholder="e.g. make it stricter / also support kelvin"
+            onChange={(e) => setFeedback(e.target.value)} />
+        </div>
+      )}
+      <div className="wizard-actions">
+        <div style={{ minWidth: 220 }}>
+          <ModelSelect provider={sel.provider} model={sel.model}
+            onChange={(provider, model) => setSel({ provider, model })} />
+        </div>
+        <button className="btn primary" disabled={busy} onClick={generate}>
+          {busy ? "Generating…" : generated ? "🪄 Refine draft" : "🪄 Generate draft"}
+        </button>
+        {busy && <span className="help">running locally on {sel.model} — this can take a minute</span>}
+      </div>
+    </div>
+  );
+}
 
 /* ---------------- skills ---------------- */
 
-function SkillEditor({ skill, onClose, onSaved }) {
+function SkillEditor({ skill, wizard, onClose, onSaved }) {
   const isNew = !skill?.id;
   const [data, setData] = useState(skill || {
     name: "", icon: "✨", description: "", instructions: "",
@@ -22,10 +107,15 @@ function SkillEditor({ skill, onClose, onSaved }) {
     <div className="modal-back" onClick={(e) => e.target.classList.contains("modal-back") && onClose()}>
       <div className="modal">
         <div className="modal-head">
-          <h2>{isNew ? "New skill" : `Edit ${data.name}`}</h2>
+          <h2>{isNew ? (wizard ? "New skill — AI wizard" : "New skill") : `Edit ${data.name}`}</h2>
           <button className="btn ghost" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
+          {wizard && (
+            <WizardPanel kind="skill"
+              buildPayload={() => ({ current: data })}
+              onDraft={(d) => setData((prev) => ({ ...prev, ...d }))} />
+          )}
           <div className="row">
             <div className="field narrow">
               <label>Icon</label>
@@ -63,7 +153,7 @@ function SkillEditor({ skill, onClose, onSaved }) {
 
 /* ---------------- custom tool code editor ---------------- */
 
-function ToolFileEditor({ file, template, onClose, onSaved }) {
+function ToolFileEditor({ file, template, wizard, onClose, onSaved }) {
   const isNew = !file;
   const [name, setName] = useState(file || "my_tool.py");
   const [code, setCode] = useState(template);
@@ -87,10 +177,20 @@ function ToolFileEditor({ file, template, onClose, onSaved }) {
     <div className="modal-back" onClick={(e) => e.target.classList.contains("modal-back") && onClose()}>
       <div className="modal" style={{ maxWidth: 860 }}>
         <div className="modal-head">
-          <h2>{isNew ? "New custom tool" : `Edit ${file}`}</h2>
+          <h2>{isNew ? (wizard ? "New custom tool — AI wizard" : "New custom tool") : `Edit ${file}`}</h2>
           <button className="btn ghost" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
+          {wizard && (
+            <WizardPanel kind="tool"
+              buildPayload={() => ({ current_code: code })}
+              onDraft={(d) => {
+                setCode(d.code);
+                if (d.filename_suggestion && isNew) setName(d.filename_suggestion);
+                setResult(d.error ? { error: d.error } : null);
+                if (d.error) toast("Draft has a load error — refine or fix by hand", true);
+              }} />
+          )}
           <div className="field">
             <label>File name (in custom_tools/)</label>
             <input type="text" value={name} disabled={!isNew}
@@ -125,6 +225,8 @@ export default function Toolbox() {
   const [catalog, setCatalog] = useState(null);
   const [editSkill, setEditSkill] = useState(undefined);
   const [editFile, setEditFile] = useState(undefined); // undefined closed, null new, "x.py" edit
+  const [skillWiz, setSkillWiz] = useState(false);
+  const [toolWiz, setToolWiz] = useState(false);
 
   const load = () => {
     api("/skills").then(setSkills).catch(() => {});
@@ -183,8 +285,11 @@ export default function Toolbox() {
               </div>
             </div>
           ))}
-          <div className="new-card" onClick={() => setEditSkill(null)}>
+          <div className="new-card" onClick={() => { setSkillWiz(false); setEditSkill(null); }}>
             <div className="plus">＋</div>Create a skill
+          </div>
+          <div className="new-card" onClick={() => { setSkillWiz(true); setEditSkill(null); }}>
+            <div className="plus">🪄</div>Create with AI wizard
           </div>
         </div>
         <h3 style={{ fontSize: 13, margin: "18px 0 4px" }}>How to create a good skill</h3>
@@ -224,7 +329,10 @@ export default function Toolbox() {
 
         <h3 style={{ fontSize: 13, margin: "18px 0 6px" }}>
           Custom
-          <button className="btn sm" style={{ marginLeft: 10 }} onClick={() => setEditFile(null)}>＋ New tool file</button>
+          <button className="btn sm" style={{ marginLeft: 10 }}
+            onClick={() => { setToolWiz(false); setEditFile(null); }}>＋ New tool file</button>
+          <button className="btn sm" style={{ marginLeft: 6 }}
+            onClick={() => { setToolWiz(true); setEditFile(null); }}>🪄 Create with AI wizard</button>
         </h3>
         {!(catalog?.files || []).length && (
           <p className="page-sub">No custom tools yet — create one to see it appear in every agent's tool picker.</p>
@@ -262,11 +370,13 @@ export default function Toolbox() {
       </div>
 
       {editSkill !== undefined && (
-        <SkillEditor skill={editSkill} onClose={() => setEditSkill(undefined)}
+        <SkillEditor skill={editSkill} wizard={skillWiz}
+          onClose={() => setEditSkill(undefined)}
           onSaved={() => { setEditSkill(undefined); reload(); }} />
       )}
       {editFile !== undefined && (
         <ToolFileEditor file={editFile} template={catalog?.template || ""}
+          wizard={toolWiz}
           onClose={() => setEditFile(undefined)}
           onSaved={() => reload()} />
       )}
