@@ -23,6 +23,11 @@ storage.init_db()
 storage.mark_stale_runs()
 seeds.seed_if_empty()
 
+# Kick a background catalog refresh at startup if the cache is stale
+# (get_catalog handles the staleness check; no-op when fresh or offline).
+import catalog as _catalog  # noqa: E402
+_catalog.get_catalog(auto_refresh=True)
+
 VALID_TOPOLOGIES = {"single", "pipeline", "supervisor", "graph"}
 
 
@@ -283,6 +288,70 @@ def skills_delete(sid):
 @app.get("/api/system")
 def system_report():
     return jsonify(sysinfo.full_report())
+
+
+# ---------------- model catalog & installer ----------------
+
+@app.get("/api/catalog")
+def catalog_get():
+    import catalog
+    data = catalog.get_catalog()
+    hw = sysinfo.hardware()
+    installed = set()
+    models = providers.list_models()
+    for name in models.get("ollama", []):
+        installed.add(name)
+        installed.add(name.split(":")[0])
+    for m in data["models"]:
+        if m.get("size_gb"):
+            v = sysinfo._verdict(m["size_gb"], hw["ram_total_gb"], hw["gpu"])
+            m["verdict"] = v
+            m["verdict_label"] = sysinfo.VERDICT_LABEL[v]
+            m["est_tok_s"] = sysinfo._speed_estimate(m.get("params_b"), hw["gpu"])
+        else:
+            m["verdict"] = "unknown"
+            m["verdict_label"] = "Size unknown — open the model page on ollama.com"
+            m["est_tok_s"] = None
+        m["installed"] = m["name"] in installed or (
+            m["name"].endswith(":latest") and m["name"][:-7] in installed)
+    runnable = [m for m in data["models"] if m.get("verdict") in ("great", "ok", "tight")]
+    sweet = max((m for m in data["models"] if m.get("verdict") == "great"
+                 and m.get("params_b")), key=lambda m: m["params_b"], default=None)
+    data["summary"] = {"total": len(data["models"]), "runnable": len(runnable),
+                       "sweet_spot": sweet["name"] if sweet else None}
+    return jsonify(data)
+
+
+@app.post("/api/catalog/refresh")
+def catalog_refresh():
+    import catalog
+    started = catalog.refresh(blocking=False)
+    return jsonify({"started": started})
+
+
+@app.post("/api/install")
+def install_start():
+    import installer
+    body = request.get_json(force=True) or {}
+    provider = body.get("provider")
+    model = (body.get("model") or "").strip()
+    if provider not in ("ollama", "lmstudio") or not model:
+        abort(400, "provider (ollama|lmstudio) and model are required")
+    return jsonify(installer.start(provider, model))
+
+
+@app.get("/api/install/status")
+def install_status():
+    import installer
+    return jsonify(installer.status_all())
+
+
+@app.post("/api/install/cancel")
+def install_cancel():
+    import installer
+    body = request.get_json(force=True) or {}
+    return jsonify({"cancelled": installer.cancel(body.get("provider"),
+                                                  body.get("model"))})
 
 
 @app.get("/api/params")

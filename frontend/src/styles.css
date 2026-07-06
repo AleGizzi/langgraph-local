@@ -455,3 +455,23 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
 .wizard-head { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 9px; color: var(--accent); }
 .wizard-head .help { font-weight: 400; }
 .wizard-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ---------------- model catalog ---------------- */
+.catalog-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.catalog-search {
+  border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 11px;
+  min-width: 230px; background: var(--surface); outline: none;
+}
+.catalog-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(21,94,239,.12); }
+.install-progress {
+  position: relative; height: 22px; min-width: 110px; border-radius: 999px;
+  background: var(--bg); border: 1px solid var(--border-strong); overflow: hidden;
+  font-size: 11px; font-weight: 700; color: var(--text-2);
+  display: flex; align-items: center; justify-content: center;
+}
+.install-progress-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: var(--accent-soft); border-right: 2px solid var(--accent);
+  transition: width .4s ease;
+}
+.install-progress span { position: relative; z-index: 1; }

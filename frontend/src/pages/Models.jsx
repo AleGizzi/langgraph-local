@@ -1,5 +1,6 @@
 import React from "react";
 import { useApp } from "../App.jsx";
+import CatalogTable from "../components/CatalogTable.jsx";
 
 export default function Models() {
   const { models, health } = useApp();
@@ -36,10 +37,14 @@ export default function Models() {
           </div>
         </div>
       ))}
-      <p className="page-sub" style={{ marginTop: 14 }}>
-        Tip: pull more Ollama models with “ollama pull &lt;name&gt;”. In LM Studio, load models
-        in the Developer tab to expose them on the local server.
-      </p>
+      <div className="card section-card" style={{ marginTop: 16 }}>
+        <h2>⬇ Get more models</h2>
+        <div className="sub">
+          Everything in the Ollama library, assessed against this machine —
+          see Settings for the hardware details behind the verdicts.
+        </div>
+        <CatalogTable compact />
+      </div>
     </>
   );
 }

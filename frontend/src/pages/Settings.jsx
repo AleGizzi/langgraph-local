@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../lib/api.js";
+import CatalogTable from "../components/CatalogTable.jsx";
 
 function AssessTable({ rows, showInstalled }) {
   return (
@@ -85,13 +86,13 @@ export default function Settings() {
       </div>
 
       <div className="card section-card">
-        <h2>🧭 Model catalog for this PC</h2>
+        <h2>🧭 Every model that can run on this PC</h2>
         <div className="sub">
-          Popular models and whether they will run here.
-          {a.sweet_spot && <> Sweet spot for this machine: <strong className="mono">{a.sweet_spot}</strong>
-            {" "}— install it with <code>ollama pull {a.sweet_spot}</code>.</>}
+          The full Ollama library, checked against your hardware. The list updates
+          itself from ollama.com (plain parsing, no AI) and can be refreshed any time.
+          Install downloads the model straight into your chosen provider.
         </div>
-        <AssessTable rows={a.catalog} showInstalled />
+        <CatalogTable />
       </div>
     </>
   );

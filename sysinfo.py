@@ -181,21 +181,6 @@ INSTALL_GUIDES = {
 
 # ---------------- model suitability ----------------
 
-# Curated catalog of popular Ollama models: (name, approx download/RAM GB, tags)
-MODEL_CATALOG = [
-    ("qwen2.5:0.5b", 0.4, "general"), ("llama3.2:1b", 1.3, "general"),
-    ("qwen2.5:1.5b", 1.0, "general"), ("gemma2:2b", 1.6, "general"),
-    ("llama3.2:3b", 2.0, "general"), ("qwen2.5:3b", 1.9, "general"),
-    ("phi3.5:3.8b", 2.2, "general"), ("qwen2.5:7b", 4.7, "general"),
-    ("mistral:7b", 4.1, "general"), ("llama3.1:8b", 4.9, "general"),
-    ("gemma2:9b", 5.4, "general"), ("qwen2.5:14b", 9.0, "general"),
-    ("qwen2.5:32b", 20.0, "general"), ("llama3.1:70b", 40.0, "general"),
-    ("qwen2.5-coder:1.5b", 1.0, "code"), ("qwen2.5-coder:3b", 1.9, "code"),
-    ("qwen2.5-coder:7b", 4.7, "code"), ("qwen2.5-coder:14b", 9.0, "code"),
-    ("deepseek-r1:7b", 4.7, "reasoning"), ("deepseek-r1:14b", 9.0, "reasoning"),
-]
-
-
 def _params_from_name(name):
     m = re.search(r"(\d+(?:\.\d+)?)\s*b\b", name.lower())
     return float(m.group(1)) if m else None
@@ -256,23 +241,6 @@ def assess():
     except Exception:  # noqa: BLE001
         pass
 
-    installed_names = {i["name"].split(":")[0] + ":" + (i["name"].split(":")[1] if ":" in i["name"] else "")
-                       for i in installed}
-    catalog = []
-    for name, size_gb, tag in MODEL_CATALOG:
-        v = _verdict(size_gb, ram, gpu)
-        catalog.append({
-            "name": name, "size_gb": size_gb, "tag": tag,
-            "params_b": _params_from_name(name),
-            "verdict": v, "verdict_label": VERDICT_LABEL[v],
-            "est_tok_s": _speed_estimate(_params_from_name(name), gpu),
-            "installed": name in installed_names,
-        })
-
-    # Sweet spot: biggest "great"-verdict general model.
-    sweet = next((c["name"] for c in reversed(catalog)
-                  if c["verdict"] == "great" and c["tag"] == "general"), None)
-
     # Parallel capacity: how many ~typical loaded models fit in RAM at once,
     # capped by CPU cores (inference is compute-bound) and — critically — by
     # the GPU: with partial offload (model bigger than VRAM), more than 2
@@ -289,7 +257,7 @@ def assess():
                     "would thrash it.")
     capacity = max(1, min(caps))
     return {
-        "installed": installed, "catalog": catalog, "sweet_spot": sweet,
+        "installed": installed,
         "parallel": {
             "capacity": capacity,
             "reason": (f"{ram} GB RAM fits ~{by_ram} loaded {typical} GB models; "
