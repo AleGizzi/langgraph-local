@@ -4,3 +4,4 @@ langchain-ollama>=1.0
 langchain-openai>=1.0
 requests>=2.31
 gunicorn>=23.0
+zstandard>=0.22

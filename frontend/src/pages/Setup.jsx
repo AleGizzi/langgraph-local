@@ -1,5 +1,103 @@
-import React, { useEffect, useState } from "react";
-import { api } from "../lib/api.js";
+import React, { useEffect, useRef, useState } from "react";
+import { api, toast } from "../lib/api.js";
+
+function InstallWizard({ provider, info, docker, onInstalled }) {
+  const [st, setSt] = useState(null);
+  const timer = useRef(null);
+  const key = `setup::${provider}`;
+  const active = st && !st.done;
+
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const all = await api("/install/status");
+        const cur = all[key];
+        setSt(cur || null);
+        if (cur?.done) {
+          clearInterval(timer.current);
+          if (cur.status?.startsWith("installed")) onInstalled?.();
+        }
+      } catch { /* server busy */ }
+    };
+    tick();
+    return () => clearInterval(timer.current);
+  }, []);
+
+  const start = async () => {
+    try {
+      const r = await api("/setup/install", { method: "POST", body: { provider } });
+      if (r.ok === false) { toast(r.error, true); return; }
+      setSt({ done: false, progress: 0, status: "starting" });
+      timer.current = setInterval(async () => {
+        try {
+          const all = await api("/install/status");
+          const cur = all[key];
+          if (cur) setSt(cur);
+          if (cur?.done) {
+            clearInterval(timer.current);
+            if (cur.status?.startsWith("installed")) {
+              toast(`${info.name} installed and running`);
+              onInstalled?.();
+            }
+          }
+        } catch { /* retry next tick */ }
+      }, 1500);
+    } catch (e) { toast(e.message, true); }
+  };
+
+  if (docker) {
+    return (
+      <div className="wizard-box" style={{ marginTop: 12 }}>
+        <div className="wizard-head">🐳 Running in Docker</div>
+        <div className="help">
+          {provider === "ollama"
+            ? "Ollama is provided by the bundled service in docker-compose — nothing to install. Pull models from the Settings page."
+            : "LM Studio is a desktop app and does not run inside Docker. Use the bundled Ollama service instead."}
+        </div>
+      </div>
+    );
+  }
+  if (info.running) return null;
+
+  return (
+    <div className="wizard-box" style={{ marginTop: 12 }}>
+      <div className="wizard-head">
+        🚀 First time here?
+        <span className="help">
+          {provider === "ollama"
+            ? "One click installs Ollama for your user (no admin password) and starts it."
+            : "One click downloads the LM Studio app; you launch it once to finish."}
+        </span>
+      </div>
+      {active ? (
+        <div>
+          <div className="install-progress" style={{ maxWidth: 420 }} title={st.status}>
+            <div className="install-progress-fill" style={{ width: `${st.progress || 2}%` }} />
+            <span>{st.progress ? `${Math.round(st.progress)}%` : "…"}</span>
+          </div>
+          <div className="param-hint" style={{ marginTop: 6 }}>{st.status}</div>
+        </div>
+      ) : st?.done && !st.status?.startsWith("installed") ? (
+        <div className="param-hint" style={{ color: st.error ? "var(--red)" : "var(--green)" }}>
+          {st.error || st.status}
+        </div>
+      ) : info.installed ? (
+        <div className="param-hint">
+          {info.name} is installed but not running —{" "}
+          {provider === "ollama"
+            ? "start it with `systemctl start ollama` or `ollama serve`."
+            : "launch the app and start its server from the Developer tab."}
+        </div>
+      ) : (
+        <div>
+          <button className="btn primary" onClick={start}>
+            {provider === "ollama" ? "⬇ Install Ollama automatically" : "⬇ Download LM Studio"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function InstallInfo({ info }) {
   const rows = [
@@ -43,7 +141,8 @@ function Guide({ guide }) {
 
 export default function Setup() {
   const [sys, setSys] = useState(null);
-  useEffect(() => { api("/system").then(setSys).catch(() => {}); }, []);
+  const load = () => api("/system").then(setSys).catch(() => {});
+  useEffect(() => { load(); }, []);
   if (!sys) return <p className="page-sub">Inspecting your system…</p>;
   const { installations, guides } = sys;
   const sections = [
@@ -72,6 +171,7 @@ export default function Setup() {
           <div className="sub">{blurb} · <a href={guide.site} target="_blank" rel="noopener noreferrer">{guide.site}</a></div>
           <h3 style={{ fontSize: 13, margin: "10px 0 6px" }}>On this machine</h3>
           <InstallInfo info={info} />
+          <InstallWizard provider={key} info={info} docker={sys.docker} onInstalled={load} />
           <h3 style={{ fontSize: 13, margin: "16px 0 0" }}>
             {info.installed ? "Install steps (for reference)" : "How to install"}
           </h3>

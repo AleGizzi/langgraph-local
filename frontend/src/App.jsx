@@ -121,7 +121,22 @@ export default function App() {
             </button>
           </div>
         </aside>
-        <main className="main"><div className="page">{view}</div></main>
+        <main className="main">
+          {health && !health.providers.ollama.up && !health.providers.lmstudio.up && route.page !== "setup" && (
+            <a className="first-run-banner" href="#/setup">
+              🚀 No local model provider is running — open <strong>Setup</strong> to
+              install Ollama with one click.
+            </a>
+          )}
+          {health && health.providers.ollama.up && health.providers.ollama.models === 0 &&
+            !health.providers.lmstudio.up && route.page !== "settings" && (
+            <a className="first-run-banner" href="#/settings">
+              📦 Ollama is running but has no models yet — pick one from the
+              <strong> dream team</strong> in Settings.
+            </a>
+          )}
+          <div className="page">{view}</div>
+        </main>
       </div>
     </AppCtx.Provider>
   );

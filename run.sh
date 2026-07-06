@@ -16,6 +16,14 @@ if [ ! -f static/dist/index.html ] || \
 fi
 
 PORT="${PORT:-5860}"
+
+# First-run guidance: no provider detected → the in-app wizard handles it.
+if ! curl -sf --max-time 2 "${OLLAMA_URL:-http://localhost:11434}/api/version" > /dev/null 2>&1 \
+   && ! curl -sf --max-time 2 "${LMSTUDIO_URL:-http://localhost:1234/v1}/models" > /dev/null 2>&1; then
+  echo "ℹ No local model provider detected (Ollama / LM Studio)."
+  echo "  Open http://127.0.0.1:${PORT} → Setup and click “Install Ollama automatically”."
+fi
+
 echo "→ Local Agents Studio on http://127.0.0.1:${PORT}"
 exec .venv/bin/gunicorn \
   --bind "127.0.0.1:${PORT}" \

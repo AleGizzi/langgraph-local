@@ -1,0 +1,39 @@
+# Local Agents Studio — one command for Windows / macOS / Linux:
+#   docker compose up -d
+# then open http://localhost:5860 and install a model from Settings.
+services:
+  app:
+    build: .
+    ports:
+      - "5860:5860"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+    volumes:
+      - app_data:/app/data
+      - ./custom_tools:/app/custom_tools
+    depends_on:
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    # Uncomment to reach Ollama from the host too (conflicts with a native
+    # Ollama install on the same machine):
+    # ports:
+    #   - "11434:11434"
+    restart: unless-stopped
+    # NVIDIA GPU acceleration (requires nvidia-container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  app_data:
+  ollama_models:

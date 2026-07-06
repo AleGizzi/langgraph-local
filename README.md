@@ -51,9 +51,29 @@ powered by **Ollama** and/or **LM Studio**. No cloud, no API keys, no telemetry.
 
 ## Run
 
+### Docker — easiest, works on Windows / macOS / Linux
+
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (on
+Windows it uses WSL2), then:
+
+```bash
+docker compose up -d
+```
+
+Open http://localhost:5860 — a bundled Ollama service is included, so just pick
+a model from the **dream team** in Settings and it downloads with one click.
+(GPU acceleration: uncomment the `deploy:` block in `docker-compose.yml`.)
+
+### Native (Linux)
+
 ```bash
 ./run.sh        # builds the frontend if needed, then serves on http://127.0.0.1:5860
 ```
+
+First time on a clean machine? Just run it — the app detects that no model
+provider is installed and the **Setup page offers one-click installation**:
+Ollama installs user-level (no sudo) and starts automatically; LM Studio is
+downloaded ready to launch.
 
 Development mode (hot reload):
 

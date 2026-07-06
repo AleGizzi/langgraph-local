@@ -287,7 +287,20 @@ def skills_delete(sid):
 
 @app.get("/api/system")
 def system_report():
-    return jsonify(sysinfo.full_report())
+    import installer
+    report = sysinfo.full_report()
+    report["docker"] = installer.in_docker()
+    return jsonify(report)
+
+
+@app.post("/api/setup/install")
+def setup_install():
+    import installer
+    body = request.get_json(force=True) or {}
+    provider = body.get("provider")
+    if provider not in ("ollama", "lmstudio"):
+        abort(400, "provider must be ollama or lmstudio")
+    return jsonify(installer.install_provider(provider))
 
 
 # ---------------- model catalog & installer ----------------
