@@ -6,7 +6,7 @@ function PersonaEditor({ persona, onClose, onSaved }) {
   const isNew = !persona?.id;
   const [data, setData] = useState(persona || {
     name: "", icon: "🧑", role: "", description: "", system_prompt: "",
-    provider: "ollama", model: "", params: {}, tools: [],
+    provider: "ollama", model: "", params: {}, tools: [], skills: [],
   });
 
   const save = async () => {

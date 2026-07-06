@@ -71,20 +71,48 @@ export function ParamsEditor({ params, onChange }) {
 
 export function ToolsPicker({ selected, onChange }) {
   const { tools } = useApp();
+  const all = [
+    ...(tools.builtin || []),
+    ...(tools.custom || []).map((t) => ({ ...t, custom: true })),
+  ];
   const toggle = (key) => {
     const cur = selected || [];
     onChange(cur.includes(key) ? cur.filter((t) => t !== key) : [...cur, key]);
   };
   return (
     <div className="tools-row">
-      {Object.entries(tools).map(([key, desc]) => (
+      {all.map((t) => (
         <span
-          key={key}
-          className={"tool-tag" + ((selected || []).includes(key) ? " on" : "")}
-          title={desc}
-          onClick={() => toggle(key)}
-        >{key}</span>
+          key={t.name}
+          className={"tool-tag" + ((selected || []).includes(t.name) ? " on" : "")}
+          title={t.description + (t.custom ? ` (custom: ${t.file})` : "")}
+          onClick={() => toggle(t.name)}
+        >{t.custom ? "🧩 " : ""}{t.name}</span>
       ))}
+      {!all.length && <span className="help">No tools available.</span>}
+    </div>
+  );
+}
+
+export function SkillsPicker({ selected, onChange }) {
+  const { skills } = useApp();
+  const toggle = (name) => {
+    const cur = selected || [];
+    onChange(cur.includes(name) ? cur.filter((s) => s !== name) : [...cur, name]);
+  };
+  return (
+    <div className="tools-row">
+      {skills.map((s) => (
+        <span
+          key={s.id}
+          className={"tool-tag" + ((selected || []).includes(s.name) ? " on" : "")}
+          title={s.description}
+          onClick={() => toggle(s.name)}
+        >{s.icon} {s.name}</span>
+      ))}
+      {!skills.length && (
+        <span className="help">No skills yet — create them in Skills & Tools.</span>
+      )}
     </div>
   );
 }
@@ -121,8 +149,12 @@ export default function AgentFields({ value, onChange, namePlaceholder = "Agent 
       </div>
       <ParamsEditor params={value.params || {}} onChange={(params) => upd({ params })} />
       <div className="field" style={{ marginTop: 8 }}>
-        <label>Tools</label>
+        <label>Tools — functions the agent can call</label>
         <ToolsPicker selected={value.tools} onChange={(tools) => upd({ tools })} />
+      </div>
+      <div className="field" style={{ marginTop: 8 }}>
+        <label>Skills — behavior directives added to the prompt</label>
+        <SkillsPicker selected={value.skills} onChange={(skills) => upd({ skills })} />
       </div>
     </>
   );

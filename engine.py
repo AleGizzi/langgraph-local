@@ -73,6 +73,11 @@ class TeamRunner:
         self.cancel = cancel_event
         self.agents = {a["name"]: a for a in team["agents"]}
         self.settings = team.get("settings", {})
+        try:
+            import storage
+            self.skill_map = {s["name"]: s for s in storage.list_skills()}
+        except Exception:  # noqa: BLE001 - skills are optional
+            self.skill_map = {}
         # Gates concurrent LLM calls: >1 only when the parallel toggle is on
         # and the hardware assessment says the machine can take it.
         self.llm_gate = threading.Semaphore(max(1, max_concurrency))
@@ -163,6 +168,10 @@ class TeamRunner:
 
     def _agent_system_prompt(self, agent: dict) -> str:
         base = agent.get("system_prompt", "").strip() or "You are a helpful assistant."
+        for sname in agent.get("skills") or []:
+            skill = self.skill_map.get(sname)
+            if skill and skill.get("instructions"):
+                base += f"\n\n## Skill: {skill['name']}\n{skill['instructions']}"
         rules = (
             "\n\nRules: Do the work directly and completely. Never ask the user "
             "questions. Produce clean, final, well-formatted Markdown output. "

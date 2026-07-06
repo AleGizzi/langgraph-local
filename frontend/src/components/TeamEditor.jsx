@@ -75,9 +75,10 @@ export default function TeamEditor({ team, onClose, onSaved }) {
       provider: fromPersona.provider, model: fromPersona.model || "",
       system_prompt: fromPersona.system_prompt,
       params: { ...(fromPersona.params || {}) }, tools: [...(fromPersona.tools || [])],
+      skills: [...(fromPersona.skills || [])],
     } : {
       name: uniqueName(`Agent ${d.agents.length + 1}`, d.agents), role: "",
-      provider: "ollama", model: "", system_prompt: "", params: {}, tools: [],
+      provider: "ollama", model: "", system_prompt: "", params: {}, tools: [], skills: [],
     };
     return { ...d, agents: [...d.agents, withKey(base)] };
   });
@@ -100,6 +101,7 @@ export default function TeamEditor({ team, onClose, onSaved }) {
       system_prompt: persona.system_prompt,
       params: { ...(persona.params || {}) },
       tools: [...(persona.tools || [])],
+      skills: [...(persona.skills || [])],
     });
     toast(`Applied persona: ${persona.name}`);
   };
@@ -109,7 +111,7 @@ export default function TeamEditor({ team, onClose, onSaved }) {
       await api("/personas", { method: "POST", body: {
         name: a.name, icon: "🧑", role: a.role, description: `Saved from team editor`,
         system_prompt: a.system_prompt, provider: a.provider, model: a.model,
-        params: a.params, tools: a.tools,
+        params: a.params, tools: a.tools, skills: a.skills,
       }});
       toast(`Saved "${a.name}" as a persona`);
     } catch (e) { toast(e.message, true); }

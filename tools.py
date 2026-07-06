@@ -109,8 +109,84 @@ TOOL_CATALOG = {
     "files": "Read/write files in the run workspace",
 }
 
+CUSTOM_TOOLS_DIR = os.environ.get(
+    "AGENTS_CUSTOM_TOOLS",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "custom_tools"),
+)
+
+CUSTOM_TOOL_TEMPLATE = '''"""Custom tool — one or more @tool functions per file.
+
+The function name becomes the tool name agents call. The docstring is what
+the model reads to decide WHEN to use it, so describe the purpose and the
+arguments clearly. Return a string (it is fed back to the model).
+"""
+from langchain_core.tools import tool
+
+
+@tool
+def word_count(text: str) -> str:
+    """Count the words in a text. Use when asked how long a text is."""
+    return f"{len(text.split())} words"
+'''
+
+
+def load_custom_tools():
+    """Discover LangChain tools in custom_tools/*.py.
+
+    Returns (tools_by_name, files) where files is a list of
+    {file, tools: [names], error} — broken files never break the app.
+    """
+    import importlib.util
+    from langchain_core.tools import BaseTool
+
+    by_name, files = {}, []
+    if not os.path.isdir(CUSTOM_TOOLS_DIR):
+        return by_name, files
+    for fn in sorted(os.listdir(CUSTOM_TOOLS_DIR)):
+        if not fn.endswith(".py") or fn.startswith("_"):
+            continue
+        path = os.path.join(CUSTOM_TOOLS_DIR, fn)
+        entry = {"file": fn, "tools": [], "error": None}
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"agents_custom_tools_{fn[:-3]}", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            for obj in vars(mod).values():
+                if isinstance(obj, BaseTool):
+                    by_name[obj.name] = obj
+                    entry["tools"].append(obj.name)
+            if not entry["tools"]:
+                entry["error"] = "No @tool functions found in this file."
+        except Exception as e:  # noqa: BLE001 - user code can fail arbitrarily
+            entry["error"] = f"{type(e).__name__}: {e}"
+        files.append(entry)
+    return by_name, files
+
+
+def full_catalog() -> dict:
+    """Everything the UI and validators need to know about tools."""
+    custom_by_name, files = load_custom_tools()
+    custom = []
+    for entry in files:
+        for name in entry["tools"]:
+            custom.append({"name": name, "file": entry["file"],
+                           "description": (custom_by_name[name].description or "")[:200]})
+    return {
+        "builtin": [{"name": k, "description": v} for k, v in TOOL_CATALOG.items()],
+        "custom": custom,
+        "files": files,
+        "template": CUSTOM_TOOL_TEMPLATE,
+    }
+
+
+def valid_tool_names() -> set:
+    custom_by_name, _files = load_custom_tools()
+    return set(TOOL_CATALOG) | set(custom_by_name)
+
 
 def resolve_tools(names: list, workspace: str) -> list:
+    custom_by_name, _files = load_custom_tools()
     tools = []
     for n in names or []:
         if n == "calculator":
@@ -121,4 +197,6 @@ def resolve_tools(names: list, workspace: str) -> list:
             tools.append(http_get)
         elif n == "files":
             tools.extend(make_workspace_tools(workspace))
+        elif n in custom_by_name:
+            tools.append(custom_by_name[n])
     return tools

@@ -4,6 +4,7 @@ local models (Ollama / LM Studio). Single-user, fully local.
 import json
 import os
 import queue
+import re
 
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
@@ -12,7 +13,8 @@ import seeds
 import storage
 import sysinfo
 from runmanager import WORKSPACES, manager
-from tools import TOOL_CATALOG
+import tools as tools_mod
+from tools import CUSTOM_TOOLS_DIR
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.config["JSON_AS_ASCII"] = False
@@ -125,7 +127,10 @@ def _validate_team(data: dict):
         except (TypeError, ValueError):
             a["temperature"] = 0.7
         a["params"] = providers.clean_params(a.get("params"))
-        a["tools"] = [t for t in (a.get("tools") or []) if t in TOOL_CATALOG]
+        valid_tools = tools_mod.valid_tool_names()
+        valid_skills = {s["name"] for s in storage.list_skills()}
+        a["tools"] = [t for t in (a.get("tools") or []) if t in valid_tools]
+        a["skills"] = [s for s in (a.get("skills") or []) if s in valid_skills]
     graph = None
     if topology == "graph":
         graph = _validate_graph(agents, data.get("graph"))
@@ -168,7 +173,81 @@ def models():
 
 @app.get("/api/tools")
 def tools_catalog():
-    return jsonify(TOOL_CATALOG)
+    return jsonify(tools_mod.full_catalog())
+
+
+def _safe_tool_file(filename: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_\-]+\.py", filename):
+        abort(400, "tool file name must be like my_tool.py")
+    return os.path.join(CUSTOM_TOOLS_DIR, filename)
+
+
+@app.get("/api/tools/files/<filename>")
+def tool_file_get(filename):
+    path = _safe_tool_file(filename)
+    if not os.path.isfile(path):
+        abort(404)
+    with open(path, encoding="utf-8") as f:
+        return jsonify({"file": filename, "code": f.read()})
+
+
+@app.put("/api/tools/files/<filename>")
+def tool_file_put(filename):
+    path = _safe_tool_file(filename)
+    code = (request.get_json(force=True) or {}).get("code", "")
+    if not code.strip():
+        abort(400, "code is required")
+    os.makedirs(CUSTOM_TOOLS_DIR, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(code)
+    # Reload immediately so the response reports syntax/import errors.
+    catalog = tools_mod.full_catalog()
+    entry = next((x for x in catalog["files"] if x["file"] == filename), None)
+    return jsonify({"file": filename, "loaded": entry["tools"] if entry else [],
+                    "error": entry["error"] if entry else "file not seen by loader"})
+
+
+@app.delete("/api/tools/files/<filename>")
+def tool_file_delete(filename):
+    path = _safe_tool_file(filename)
+    if os.path.isfile(path):
+        os.remove(path)
+    return jsonify({"ok": True})
+
+
+# ---------------- skills ----------------
+
+def _validate_skill(data: dict) -> dict:
+    if not isinstance(data, dict) or not (data.get("name") or "").strip():
+        abort(400, "skill name is required")
+    if not (data.get("instructions") or "").strip():
+        abort(400, "skill instructions are required")
+    return {"name": data["name"].strip(), "icon": (data.get("icon") or "✨")[:8],
+            "description": data.get("description", ""),
+            "instructions": data["instructions"].strip()}
+
+
+@app.get("/api/skills")
+def skills_list():
+    return jsonify(storage.list_skills())
+
+
+@app.post("/api/skills")
+def skills_create():
+    return jsonify(storage.create_skill(_validate_skill(request.get_json(force=True))))
+
+
+@app.put("/api/skills/<int:sid>")
+def skills_update(sid):
+    if not storage.get_skill(sid):
+        abort(404)
+    return jsonify(storage.update_skill(sid, _validate_skill(request.get_json(force=True))))
+
+
+@app.delete("/api/skills/<int:sid>")
+def skills_delete(sid):
+    storage.delete_skill(sid)
+    return jsonify({"ok": True})
 
 
 @app.get("/api/system")
@@ -197,7 +276,9 @@ def _validate_persona(data: dict) -> dict:
         "provider": data.get("provider") if data.get("provider") in ("ollama", "lmstudio") else "ollama",
         "model": data.get("model", ""),
         "params": providers.clean_params(data.get("params")),
-        "tools": [t for t in (data.get("tools") or []) if t in TOOL_CATALOG],
+        "tools": [t for t in (data.get("tools") or []) if t in tools_mod.valid_tool_names()],
+        "skills": [s for s in (data.get("skills") or [])
+                   if s in {x["name"] for x in storage.list_skills()}],
     }
 
 

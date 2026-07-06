@@ -8,6 +8,7 @@ import Models from "./pages/Models.jsx";
 import Personas from "./pages/Personas.jsx";
 import Setup from "./pages/Setup.jsx";
 import Settings from "./pages/Settings.jsx";
+import Toolbox from "./pages/Toolbox.jsx";
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -27,6 +28,7 @@ const NAV = [
   ["teams", "🎛️", "Studio"],
   ["runs", "🗂️", "Runs"],
   ["personas", "🎭", "Personas"],
+  ["toolbox", "🧰", "Skills & Tools"],
   ["models", "🧠", "Models"],
   ["setup", "📦", "Setup"],
   ["settings", "⚙️", "Settings"],
@@ -35,14 +37,20 @@ const NAV = [
 export default function App() {
   const route = useHashRoute();
   const [models, setModels] = useState({ ollama: [], lmstudio: [] });
-  const [tools, setTools] = useState({});
+  const [tools, setTools] = useState({ builtin: [], custom: [] });
+  const [skills, setSkills] = useState([]);
   const [paramSpecs, setParamSpecs] = useState([]);
   const [health, setHealth] = useState(null);
 
+  const reloadCatalogs = () => {
+    api("/tools").then(setTools).catch(() => {});
+    api("/skills").then(setSkills).catch(() => {});
+  };
+
   useEffect(() => {
     api("/models").then(setModels).catch(() => {});
-    api("/tools").then(setTools).catch(() => {});
     api("/params").then(setParamSpecs).catch(() => {});
+    reloadCatalogs();
     const poll = () => api("/health").then(setHealth).catch(() => {});
     poll();
     const t = setInterval(poll, 15000);
@@ -60,10 +68,11 @@ export default function App() {
   else if (route.page === "personas") view = <Personas />;
   else if (route.page === "setup") view = <Setup />;
   else if (route.page === "settings") view = <Settings />;
+  else if (route.page === "toolbox") view = <Toolbox />;
   else view = <Teams />;
 
   return (
-    <AppCtx.Provider value={{ models, tools, paramSpecs, health }}>
+    <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs }}>
       <div id="app">
         <aside className="sidebar">
           <div className="logo">

@@ -50,6 +50,16 @@ CREATE TABLE IF NOT EXISTS personas (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS skills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    icon TEXT NOT NULL DEFAULT '✨',
+    description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
+    builtin INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
@@ -78,6 +88,9 @@ def init_db():
         cols = {r["name"] for r in c.execute("PRAGMA table_info(teams)")}
         if "graph" not in cols:
             c.execute("ALTER TABLE teams ADD COLUMN graph TEXT")
+        pcols = {r["name"] for r in c.execute("PRAGMA table_info(personas)")}
+        if "skills" not in pcols:
+            c.execute("ALTER TABLE personas ADD COLUMN skills TEXT NOT NULL DEFAULT '[]'")
 
 
 def _team_row_to_dict(r) -> dict:
@@ -151,6 +164,7 @@ def _persona_row_to_dict(r) -> dict:
         "description": r["description"], "system_prompt": r["system_prompt"],
         "provider": r["provider"], "model": r["model"],
         "params": json.loads(r["params"]), "tools": json.loads(r["tools"]),
+        "skills": json.loads(r["skills"]) if "skills" in r.keys() and r["skills"] else [],
         "builtin": bool(r["builtin"]),
     }
 
@@ -172,24 +186,25 @@ def create_persona(d: dict, builtin: bool = False) -> dict:
     with _conn() as c:
         cur = c.execute(
             "INSERT INTO personas (name, icon, role, description, system_prompt,"
-            " provider, model, params, tools, builtin, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " provider, model, params, tools, skills, builtin, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (d["name"], d.get("icon", "🧑"), d.get("role", ""), d.get("description", ""),
              d.get("system_prompt", ""), d.get("provider", "ollama"), d.get("model", ""),
              json.dumps(d.get("params", {})), json.dumps(d.get("tools", [])),
-             int(builtin), now, now))
-        return get_persona(cur.lastrowid)
+             json.dumps(d.get("skills", [])), int(builtin), now, now))
+        pid = cur.lastrowid
+    return get_persona(pid)
 
 
 def update_persona(pid: int, d: dict):
     with _conn() as c:
         c.execute(
             "UPDATE personas SET name=?, icon=?, role=?, description=?, system_prompt=?,"
-            " provider=?, model=?, params=?, tools=?, updated_at=? WHERE id=?",
+            " provider=?, model=?, params=?, tools=?, skills=?, updated_at=? WHERE id=?",
             (d["name"], d.get("icon", "🧑"), d.get("role", ""), d.get("description", ""),
              d.get("system_prompt", ""), d.get("provider", "ollama"), d.get("model", ""),
              json.dumps(d.get("params", {})), json.dumps(d.get("tools", [])),
-             time.time(), pid))
+             json.dumps(d.get("skills", [])), time.time(), pid))
     return get_persona(pid)
 
 
@@ -201,6 +216,58 @@ def delete_persona(pid: int):
 def count_personas() -> int:
     with _conn() as c:
         return c.execute("SELECT COUNT(*) FROM personas").fetchone()[0]
+
+
+# ---------------- skills ----------------
+
+def _skill_row_to_dict(r) -> dict:
+    return {"id": r["id"], "name": r["name"], "icon": r["icon"],
+            "description": r["description"], "instructions": r["instructions"],
+            "builtin": bool(r["builtin"])}
+
+
+def list_skills() -> list:
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM skills ORDER BY builtin DESC, name").fetchall()
+    return [_skill_row_to_dict(r) for r in rows]
+
+
+def get_skill(sid: int):
+    with _conn() as c:
+        r = c.execute("SELECT * FROM skills WHERE id=?", (sid,)).fetchone()
+    return _skill_row_to_dict(r) if r else None
+
+
+def create_skill(d: dict, builtin: bool = False) -> dict:
+    now = time.time()
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO skills (name, icon, description, instructions, builtin,"
+            " created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+            (d["name"], d.get("icon", "✨"), d.get("description", ""),
+             d.get("instructions", ""), int(builtin), now, now))
+        sid = cur.lastrowid
+    return get_skill(sid)
+
+
+def update_skill(sid: int, d: dict):
+    with _conn() as c:
+        c.execute(
+            "UPDATE skills SET name=?, icon=?, description=?, instructions=?,"
+            " updated_at=? WHERE id=?",
+            (d["name"], d.get("icon", "✨"), d.get("description", ""),
+             d.get("instructions", ""), time.time(), sid))
+    return get_skill(sid)
+
+
+def delete_skill(sid: int):
+    with _conn() as c:
+        c.execute("DELETE FROM skills WHERE id=?", (sid,))
+
+
+def count_skills() -> int:
+    with _conn() as c:
+        return c.execute("SELECT COUNT(*) FROM skills").fetchone()[0]
 
 
 # ---------------- runs ----------------

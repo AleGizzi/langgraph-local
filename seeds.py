@@ -221,6 +221,38 @@ SEED_PERSONAS = [
 ]
 
 
+SEED_SKILLS = [
+    {"name": "Structured Report", "icon": "📊",
+     "description": "Formats output as a professional report with exec summary and tables.",
+     "instructions": "Format your output as a professional report: start with a short "
+        "executive summary (3-5 bullet points), use clear ## section headings, prefer "
+        "Markdown tables for comparisons or enumerable facts, and end with a "
+        "'Next steps' section containing concrete actions."},
+    {"name": "Show Your Reasoning", "icon": "🧮",
+     "description": "Makes the agent expose assumptions and reasoning before conclusions.",
+     "instructions": "Before giving conclusions, briefly list your key assumptions and "
+        "reasoning steps under a 'Reasoning' heading. Distinguish clearly between "
+        "established facts, inferences, and guesses. Never present a guess as a fact."},
+    {"name": "Concise Mode", "icon": "🗜️",
+     "description": "Cuts filler; answers in the fewest words that fully answer.",
+     "instructions": "Be maximally concise: no preamble, no restating the question, no "
+        "filler phrases, no closing pleasantries. Use short sentences and bullets. If "
+        "the answer fits in one paragraph, one paragraph is all you write."},
+    {"name": "Code Quality Checklist", "icon": "✅",
+     "description": "Makes code-producing agents self-check against a quality bar.",
+     "instructions": "Before finishing any code, verify against this checklist and fix "
+        "violations: (1) code is complete and runnable, no placeholders or TODOs; "
+        "(2) errors and edge cases handled; (3) names are descriptive; (4) no dead "
+        "code; (5) includes a usage example or test. State 'Checklist: pass' at the "
+        "end once all items pass."},
+    {"name": "Explain Like I'm New", "icon": "🎓",
+     "description": "Adds beginner-friendly explanations to technical output.",
+     "instructions": "Assume the reader is smart but new to this domain. Define jargon "
+        "the first time you use it, add a one-line 'why this matters' after each major "
+        "point, and prefer concrete examples over abstract descriptions."},
+]
+
+
 def seed_if_empty():
     changed = False
     if storage.count_teams() == 0:
@@ -230,5 +262,9 @@ def seed_if_empty():
     if storage.count_personas() == 0:
         for p in SEED_PERSONAS:
             storage.create_persona(p, builtin=True)
+        changed = True
+    if storage.count_skills() == 0:
+        for s in SEED_SKILLS:
+            storage.create_skill(s, builtin=True)
         changed = True
     return changed
