@@ -443,6 +443,20 @@ def catalog_get():
     extra = catalog.annotate(data["models"])
     data["dream_team"] = extra["dream_team"]
     data["categories"] = catalog.CATEGORIES
+    # Image generation (separate runtime, VRAM-bound) — assess and add the best
+    # runnable one to the dream team under a 🎨 role.
+    img = catalog.image_models(hw)
+    data["image"] = img
+    if img.get("best"):
+        b = img["best"]
+        data["dream_team"].append({
+            "category": "image", "icon": "🎨", "label": "Image generation",
+            "model": b["name"], "size_gb": b["disk_gb"], "verdict": b["verdict"],
+            "est_tok_s": None, "installed": False, "image": True,
+            "runner": b["runner"],
+            "reason": (f"Best local image model for your GPU — {b['verdict_label']} "
+                       f"Runs in {b['runner']}."),
+        })
     runnable = [m for m in data["models"] if m.get("verdict") in ("great", "ok", "tight")]
     sweet = max((m for m in data["models"] if m.get("verdict") == "great"
                  and m.get("params_b")), key=lambda m: m["params_b"], default=None)

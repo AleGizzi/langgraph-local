@@ -96,12 +96,14 @@ export default function CatalogTable({ compact = false, withDreamTeam = false, d
         <div className="dream-role">{t.icon} {t.label}</div>
         <div className="dream-model mono">{t.model}</div>
         <div className="dream-meta">
-          {t.size_gb} GB · {t.est_tok_s ? `~${t.est_tok_s} tok/s` : ""} ·{" "}
+          {t.size_gb} GB · {t.est_tok_s ? `~${t.est_tok_s} tok/s` : t.image ? t.runner : ""} ·{" "}
           <span className={"verdict " + t.verdict}>{t.verdict}</span>
         </div>
         <div className="param-hint">{t.reason}</div>
         <div style={{ marginTop: 8 }}>
-          {t.installed ? <span className="badge-installed">installed</span>
+          {t.image ? (
+            <a className="btn sm" href="#/settings">🎨 Set up image gen</a>
+          ) : t.installed ? <span className="badge-installed">installed</span>
             : active ? (
               <div className="install-progress" title={st.status}>
                 <div className="install-progress-fill" style={{ width: `${st.progress || 2}%` }} />

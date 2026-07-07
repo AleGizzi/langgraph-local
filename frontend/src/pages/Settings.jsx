@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import CatalogTable from "../components/CatalogTable.jsx";
+import ImageModels from "../components/ImageModels.jsx";
 
 function AssessTable({ rows, showInstalled }) {
   return (
@@ -104,6 +105,8 @@ export default function Settings() {
         </div>
         <CatalogTable />
       </div>
+
+      <ImageModels />
     </>
   );
 }

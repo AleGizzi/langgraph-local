@@ -229,6 +229,78 @@ def classify(entry: dict) -> list:
     return cats
 
 
+# ---------------- local image-generation models (separate ecosystem) --------
+# Image models don't run in Ollama — they run in ComfyUI / Fooocus / A1111 /
+# diffusers. They are VRAM-bound, not RAM-bound, so they get their own
+# assessment. (name, disk_gb, min_vram_gb, runner, tag, blurb)
+IMAGE_MODELS = [
+    ("SD 1.5", 2.0, 2, "ComfyUI / Automatic1111 / Fooocus", "classic",
+     "The classic lightweight model. Runs on modest GPUs and even CPU (slowly). "
+     "Huge ecosystem of LoRAs and fine-tunes."),
+    ("SD-Turbo", 2.5, 2, "ComfyUI", "fast",
+     "Distilled SD that generates in 1–4 steps — near real-time on small GPUs."),
+    ("SDXL-Turbo", 6.9, 6, "ComfyUI / Fooocus", "fast",
+     "Turbo variant of SDXL: high quality in a few steps, needs a mid-range GPU."),
+    ("SDXL 1.0", 6.9, 8, "ComfyUI / Fooocus / Automatic1111", "quality",
+     "The mainstream high-quality base model. Comfortable on 8 GB+ VRAM."),
+    ("Stable Diffusion 3.5 Medium", 9.0, 9, "ComfyUI", "quality",
+     "Newer architecture, strong prompt adherence; wants ~9 GB VRAM."),
+    ("FLUX.1 [schnell]", 23.8, 12, "ComfyUI (fp8/GGUF quant ~8 GB)", "flagship",
+     "State-of-the-art open model, 1–4 steps. Full weights need lots of VRAM; "
+     "quantized GGUF builds run on ~8–12 GB."),
+    ("FLUX.1 [dev]", 23.8, 16, "ComfyUI", "flagship",
+     "Highest-quality FLUX variant; needs a large GPU (or heavy quantization)."),
+]
+
+IMAGE_SETUP = {
+    "title": "Running image models locally",
+    "note": ("Image generation uses a different runtime than Ollama. Install one "
+             "of these once, then load a model below into it:"),
+    "runners": [
+        {"name": "Fooocus", "url": "https://github.com/lllyasviel/Fooocus",
+         "blurb": "Easiest start — one-click, SDXL out of the box, minimal settings."},
+        {"name": "ComfyUI", "url": "https://github.com/comfyanonymous/ComfyUI",
+         "blurb": "Node-based and powerful; supports every model here including FLUX."},
+        {"name": "Automatic1111", "url": "https://github.com/AUTOMATIC1111/stable-diffusion-webui",
+         "blurb": "The classic web UI; great for SD 1.5 / SDXL and extensions."},
+    ],
+}
+
+
+def image_models(hardware: dict) -> dict:
+    """Assess curated image-gen models against this machine's GPU/RAM."""
+    gpu = hardware.get("gpu") or {}
+    vram = gpu.get("vram_total_gb")
+    ram = hardware.get("ram_total_gb", 0)
+    out = []
+    for name, disk, min_vram, runner, tag, blurb in IMAGE_MODELS:
+        if vram and vram >= min_vram:
+            verdict = "great" if vram >= min_vram * 1.4 else "ok"
+            note = f"Fits your {vram} GB GPU."
+        elif vram and vram >= min_vram * 0.6:
+            verdict = "tight"
+            note = (f"Above your {vram} GB VRAM — needs offloading/quantization "
+                    "and will be slow.")
+        elif ram >= min_vram + 4:
+            # CPU/RAM offload is possible for the small models, very slowly.
+            verdict = "tight" if min_vram <= 2 else "no"
+            note = ("No GPU headroom; CPU generation is possible but very slow."
+                    if verdict == "tight" else
+                    f"Needs ~{min_vram} GB VRAM; not practical on this GPU.")
+        else:
+            verdict = "no"
+            note = f"Needs ~{min_vram} GB VRAM."
+        out.append({"name": name, "disk_gb": disk, "min_vram_gb": min_vram,
+                    "runner": runner, "tag": tag, "description": blurb,
+                    "verdict": verdict, "verdict_label": note})
+    runnable = [m for m in out if m["verdict"] in ("great", "ok", "tight")]
+    best = max((m for m in out if m["verdict"] in ("great", "ok")),
+               key=lambda m: m["min_vram_gb"], default=None) or \
+        next((m for m in out if m["verdict"] == "tight"), None)
+    return {"models": out, "setup": IMAGE_SETUP, "best": best,
+            "runnable_count": len(runnable)}
+
+
 def annotate(models: list) -> dict:
     """Add categories + per-category family rank to each model, and build the
     dream team: the best model for each use case that runs on this machine.
