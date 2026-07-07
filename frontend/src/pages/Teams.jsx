@@ -49,6 +49,7 @@ export default function Teams() {
               {t.settings.parallel && <span className="chip topo">parallel</span>}
             </div>
             <div className="card-actions">
+              <button className="icon-btn" title="Open in canvas" onClick={(e) => { e.stopPropagation(); location.hash = `#/flow/${t.id}`; }}>🎨</button>
               <button className="icon-btn" title="Edit" onClick={(e) => { e.stopPropagation(); setEditing(t); }}>✏️</button>
               <button className="icon-btn" title="Duplicate" onClick={(e) => dup(t, e)}>📋</button>
               <button className="icon-btn" title="Delete" onClick={(e) => del(t, e)}>🗑️</button>

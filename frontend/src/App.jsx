@@ -9,6 +9,7 @@ import Personas from "./pages/Personas.jsx";
 import Setup from "./pages/Setup.jsx";
 import Settings from "./pages/Settings.jsx";
 import Toolbox from "./pages/Toolbox.jsx";
+import FlowEditor from "./pages/FlowEditor.jsx";
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -69,7 +70,16 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
-  const active = route.page === "team" ? "teams" : route.page === "run" ? "runs" : route.page;
+  const active = ["team", "flow"].includes(route.page) ? "teams" : route.page === "run" ? "runs" : route.page;
+
+  // The flow editor is a full-viewport page without the normal page wrapper.
+  if (route.page === "flow" && route.id) {
+    return (
+      <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs, theme }}>
+        <FlowEditor teamId={+route.id} key={route.id} />
+      </AppCtx.Provider>
+    );
+  }
 
   let view = null;
   if (route.page === "teams") view = <Teams />;
