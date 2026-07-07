@@ -5,6 +5,9 @@ powered by **Ollama** and/or **LM Studio**. No cloud, no API keys, no telemetry.
 
 ![stack](https://img.shields.io/badge/stack-Flask%20%2B%20LangGraph%20%2B%20React-155eef)
 
+> **Maintainers:** start with [`CLAUDE.md`](CLAUDE.md) and the [`docs/`](docs/) library
+> (architecture, API, frontend, operations, extending).
+
 ## What it does
 
 - **Teams**: compose multi-agent teams in the browser — each agent gets a name, role,
