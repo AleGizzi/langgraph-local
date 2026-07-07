@@ -220,6 +220,41 @@ def tool_file_delete(filename):
     return jsonify({"ok": True})
 
 
+# ---------------- chat ----------------
+
+@app.post("/api/chat")
+def chat():
+    import engine
+    body = request.get_json(force=True) or {}
+    agent = body.get("agent") or {}
+    if not agent.get("model"):
+        abort(400, "agent.model is required")
+    if agent.get("provider") not in ("ollama", "lmstudio"):
+        agent["provider"] = "ollama"
+    agent["params"] = providers.clean_params(agent.get("params"))
+    valid_tools = tools_mod.valid_tool_names()
+    valid_skills = {s["name"] for s in storage.list_skills()}
+    agent["tools"] = [t for t in (agent.get("tools") or []) if t in valid_tools]
+    agent["skills"] = [s for s in (agent.get("skills") or []) if s in valid_skills]
+    messages = [m for m in (body.get("messages") or [])
+                if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
+    if not messages:
+        abort(400, "messages are required")
+    workspace = os.path.join(WORKSPACES, "chat")
+    os.makedirs(workspace, exist_ok=True)
+    skill_map = {s["name"]: s for s in storage.list_skills()}
+
+    def generate():
+        try:
+            for ev in engine.chat_stream(agent, messages, workspace, skill_map):
+                yield _sse(ev)
+        except Exception as e:  # noqa: BLE001
+            yield _sse({"type": "error", "content": f"{type(e).__name__}: {e}"})
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 # ---------------- wizard ----------------
 
 @app.post("/api/wizard")

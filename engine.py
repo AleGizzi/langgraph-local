@@ -61,6 +61,65 @@ def _history_block(history: list) -> str:
     return "\n\n".join(parts)
 
 
+def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
+    """Generator for the Chat page: yields event dicts for one assistant turn.
+
+    `messages` is the prior conversation: [{role: 'user'|'assistant', content}].
+    Supports the same tool loop as team runs, bounded by MAX_TOOL_ROUNDS.
+    """
+    from langchain_core.messages import AIMessage as AIM
+
+    system = (agent.get("system_prompt") or "You are a helpful assistant.").strip()
+    for sname in agent.get("skills") or []:
+        s = skill_map.get(sname)
+        if s and s.get("instructions"):
+            system += f"\n\n## Skill: {s['name']}\n{s['instructions']}"
+
+    llm = make_llm(agent.get("provider", "ollama"), agent["model"],
+                   dict(agent.get("params") or {}))
+    tool_list = resolve_tools(agent.get("tools", []), workspace)
+    tool_map = {t.name: t for t in tool_list}
+    if tool_list:
+        llm = llm.bind_tools(tool_list)
+
+    msgs = [SystemMessage(content=system)]
+    for m in messages:
+        cls = HumanMessage if m.get("role") == "user" else AIM
+        msgs.append(cls(content=str(m.get("content", ""))))
+
+    final = ""
+    for _round in range(MAX_TOOL_ROUNDS + 1):
+        full = None
+        for chunk in llm.stream(msgs):
+            full = chunk if full is None else full + chunk
+            if chunk.content:
+                text = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
+                yield {"type": "token", "content": text}
+        if full is None:
+            break
+        response = AIMessage(
+            content=full.content if isinstance(full.content, str) else str(full.content),
+            tool_calls=getattr(full, "tool_calls", []) or [],
+        )
+        calls = response.tool_calls
+        if not calls or _round == MAX_TOOL_ROUNDS:
+            final = _strip_reasoning(response.content)
+            break
+        msgs.append(response)
+        for call in calls:
+            name, args = call.get("name"), call.get("args") or {}
+            yield {"type": "tool_call",
+                   "content": f"{name}({json.dumps(args, ensure_ascii=False)[:300]})"}
+            fn = tool_map.get(name)
+            try:
+                result = fn.invoke(args) if fn else f"Unknown tool {name}"
+            except Exception as e:  # noqa: BLE001
+                result = f"Tool error: {e}"
+            yield {"type": "tool_result", "content": str(result)[:1000]}
+            msgs.append(ToolMessage(content=str(result), tool_call_id=call.get("id", name)))
+    yield {"type": "done", "content": final}
+
+
 class TeamRunner:
     """Runs one team on one task, emitting events via `emit(type, **kw)`."""
 

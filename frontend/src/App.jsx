@@ -10,6 +10,7 @@ import Setup from "./pages/Setup.jsx";
 import Settings from "./pages/Settings.jsx";
 import Toolbox from "./pages/Toolbox.jsx";
 import FlowEditor from "./pages/FlowEditor.jsx";
+import Chat from "./pages/Chat.jsx";
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -27,6 +28,7 @@ function useHashRoute() {
 
 const NAV = [
   ["teams", "🎛️", "Studio"],
+  ["chat", "💬", "Chat"],
   ["runs", "🗂️", "Runs"],
   ["personas", "🎭", "Personas"],
   ["toolbox", "🧰", "Skills & Tools"],
@@ -91,6 +93,7 @@ export default function App() {
   else if (route.page === "setup") view = <Setup />;
   else if (route.page === "settings") view = <Settings />;
   else if (route.page === "toolbox") view = <Toolbox />;
+  else if (route.page === "chat") view = <Chat />;
   else view = <Teams />;
 
   return (
@@ -145,7 +148,7 @@ export default function App() {
               <strong> dream team</strong> in Settings.
             </a>
           )}
-          <div className="page">{view}</div>
+          <div className={route.page === "chat" ? "page-full" : "page"}>{view}</div>
         </main>
       </div>
     </AppCtx.Provider>
