@@ -54,6 +54,43 @@ def http_get(url: str) -> str:
         return f"Error fetching {url}: {e}"
 
 
+@tool
+def knowledge_search(query: str) -> str:
+    """Search the team's shared knowledge base (past reports and notes) for a
+    topic. Use this FIRST when a task might build on prior work. Returns matching
+    note paths with snippets; read the full note with knowledge_read."""
+    import knowledge
+    hits = knowledge.search(query, limit=8)
+    if not hits:
+        return f"No notes found for '{query}'."
+    return "\n".join(f"- [{h['title']}] ({h['path']})\n  {h['snippet']}" for h in hits)
+
+
+@tool
+def knowledge_read(path: str) -> str:
+    """Read a full note from the shared knowledge base by its path (as returned
+    by knowledge_search). Use to pull in prior findings before doing new work."""
+    import knowledge
+    try:
+        return knowledge.read_note(path, strip_meta=True)[:12000]
+    except Exception as e:  # noqa: BLE001
+        return f"Error: {e}"
+
+
+@tool
+def knowledge_write(title: str, content: str) -> str:
+    """Save a note to the shared knowledge base so future runs can reference it.
+    Use for durable findings, decisions, or reference material worth keeping.
+    `content` is Markdown; use [[wikilinks]] to relate notes."""
+    import knowledge
+    try:
+        rel = knowledge.write_note(title, content, tags=["agent-note"],
+                                   meta_extra={"source": "agent"}, subdir="notes")
+        return f"Saved as {rel}"
+    except Exception as e:  # noqa: BLE001
+        return f"Error: {e}"
+
+
 def make_workspace_tools(workspace: str):
     """File tools bound to a run's workspace directory (path-traversal safe)."""
 
@@ -107,6 +144,7 @@ TOOL_CATALOG = {
     "current_datetime": "Current date and time",
     "http_get": "Fetch a URL (needs internet)",
     "files": "Read/write files in the run workspace",
+    "knowledge": "Search/read/write the shared knowledge vault",
 }
 
 CUSTOM_TOOLS_DIR = os.environ.get(
@@ -222,6 +260,8 @@ def resolve_tools(names: list, workspace: str) -> list:
             tools.append(http_get)
         elif n == "files":
             tools.extend(make_workspace_tools(workspace))
+        elif n == "knowledge":
+            tools.extend([knowledge_search, knowledge_read, knowledge_write])
         elif n in custom_by_name:
             tools.append(custom_by_name[n])
     return tools

@@ -125,8 +125,17 @@ class RunManager:
                     f.write(final or "")
             except OSError:
                 pass
+            # Archive the deliverable into the shared knowledge vault so future
+            # runs (and Obsidian/Logseq) can reference it.
+            note_path = None
+            try:
+                import knowledge
+                note_path = knowledge.export_run(run_id, team["name"], task, final) or None
+            except Exception:  # noqa: BLE001 - knowledge export is best-effort
+                pass
             storage.finish_run(run_id, "done", final=final)
-            emit("run_end", content=final, meta={"status": "done"})
+            emit("run_end", content=final,
+                 meta={"status": "done", "knowledge_note": note_path})
         except RunCancelled:
             storage.finish_run(run_id, "cancelled", error="Stopped by user")
             emit("run_end", content="", meta={"status": "cancelled"})

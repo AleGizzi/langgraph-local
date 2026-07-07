@@ -220,6 +220,40 @@ def tool_file_delete(filename):
     return jsonify({"ok": True})
 
 
+# ---------------- knowledge base ----------------
+
+@app.get("/api/knowledge")
+def knowledge_list():
+    import knowledge
+    q = request.args.get("q", "").strip()
+    if q:
+        return jsonify({"stats": knowledge.stats(), "results": knowledge.search(q, limit=50)})
+    return jsonify({"stats": knowledge.stats(), "notes": knowledge.list_notes()})
+
+
+@app.get("/api/knowledge/note")
+def knowledge_note():
+    import knowledge
+    rel = request.args.get("path", "")
+    try:
+        return jsonify({"path": rel, "content": knowledge.read_note(rel)})
+    except (OSError, ValueError):
+        abort(404)
+
+
+@app.post("/api/knowledge/note")
+def knowledge_note_create():
+    import knowledge
+    body = request.get_json(force=True) or {}
+    title = (body.get("title") or "").strip()
+    content = body.get("content") or ""
+    if not title or not content.strip():
+        abort(400, "title and content are required")
+    rel = knowledge.write_note(title, content, tags=["manual"],
+                               meta_extra={"source": "manual"}, subdir="notes")
+    return jsonify({"path": rel})
+
+
 # ---------------- chat ----------------
 
 def _validate_chat(data: dict) -> dict:

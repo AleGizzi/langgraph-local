@@ -596,3 +596,24 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
 .chi-meta { display: block; font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
 .chi-del { position: absolute; right: 4px; top: 8px; width: 22px; height: 22px; font-size: 11px; display: none; }
 .chat-history-item:hover .chi-del { display: flex; }
+
+/* ---------------- knowledge base ---------------- */
+.kb-vaultbar { display: flex; gap: 20px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; }
+.kb-layout { display: grid; grid-template-columns: 340px 1fr; gap: 14px; height: calc(100vh - 210px); min-height: 340px; }
+.kb-list { display: flex; flex-direction: column; overflow: hidden; }
+.kb-search { display: flex; gap: 6px; padding: 10px; border-bottom: 1px solid var(--border); }
+.kb-search input { flex: 1; border: 1px solid var(--border-strong); border-radius: 7px; padding: 6px 10px; background: var(--surface); outline: none; }
+.kb-search input:focus { border-color: var(--accent); }
+.kb-items { flex: 1; overflow-y: auto; }
+.kb-item { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.kb-item:hover { background: var(--surface-2); }
+.kb-item.active { background: var(--accent-soft); }
+.kb-item-title { font-size: 13px; font-weight: 600; }
+.kb-item-sub { font-size: 11.5px; color: var(--text-3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.kb-reader { display: flex; flex-direction: column; overflow: hidden; }
+.kb-reader-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.kb-reader-body { flex: 1; overflow-y: auto; padding: 18px 22px; }
+.kb-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.kb-meta-pill { font-size: 11px; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
+.kb-meta-pill b { color: var(--text-3); font-weight: 600; margin-right: 3px; }

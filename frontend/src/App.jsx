@@ -11,6 +11,7 @@ import Settings from "./pages/Settings.jsx";
 import Toolbox from "./pages/Toolbox.jsx";
 import FlowEditor from "./pages/FlowEditor.jsx";
 import Chat from "./pages/Chat.jsx";
+import Knowledge from "./pages/Knowledge.jsx";
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -30,6 +31,7 @@ const NAV = [
   ["teams", "🎛️", "Studio"],
   ["chat", "💬", "Chat"],
   ["runs", "🗂️", "Runs"],
+  ["knowledge", "📚", "Knowledge"],
   ["personas", "🎭", "Personas"],
   ["toolbox", "🧰", "Skills & Tools"],
   ["models", "🧠", "Models"],
@@ -94,6 +96,7 @@ export default function App() {
   else if (route.page === "settings") view = <Settings />;
   else if (route.page === "toolbox") view = <Toolbox />;
   else if (route.page === "chat") view = <Chat />;
+  else if (route.page === "knowledge") view = <Knowledge />;
   else view = <Teams />;
 
   return (
