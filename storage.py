@@ -60,6 +60,14 @@ CREATE TABLE IF NOT EXISTS skills (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT '',
+    agent TEXT NOT NULL DEFAULT '{}',
+    messages TEXT NOT NULL DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
@@ -216,6 +224,58 @@ def delete_persona(pid: int):
 def count_personas() -> int:
     with _conn() as c:
         return c.execute("SELECT COUNT(*) FROM personas").fetchone()[0]
+
+
+# ---------------- chats ----------------
+
+def _chat_row(r, with_messages=True) -> dict:
+    d = {"id": r["id"], "title": r["title"], "agent": json.loads(r["agent"]),
+         "created_at": r["created_at"], "updated_at": r["updated_at"]}
+    if with_messages:
+        d["messages"] = json.loads(r["messages"])
+    else:
+        msgs = json.loads(r["messages"])
+        d["message_count"] = len(msgs)
+    return d
+
+
+def list_chats(limit: int = 100) -> list:
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM chats ORDER BY updated_at DESC LIMIT ?",
+                         (limit,)).fetchall()
+    return [_chat_row(r, with_messages=False) for r in rows]
+
+
+def get_chat(cid: int):
+    with _conn() as c:
+        r = c.execute("SELECT * FROM chats WHERE id=?", (cid,)).fetchone()
+    return _chat_row(r) if r else None
+
+
+def create_chat(d: dict) -> dict:
+    now = time.time()
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO chats (title, agent, messages, created_at, updated_at)"
+            " VALUES (?,?,?,?,?)",
+            (d.get("title", ""), json.dumps(d.get("agent", {})),
+             json.dumps(d.get("messages", [])), now, now))
+        cid = cur.lastrowid
+    return get_chat(cid)
+
+
+def update_chat(cid: int, d: dict):
+    with _conn() as c:
+        c.execute(
+            "UPDATE chats SET title=?, agent=?, messages=?, updated_at=? WHERE id=?",
+            (d.get("title", ""), json.dumps(d.get("agent", {})),
+             json.dumps(d.get("messages", [])), time.time(), cid))
+    return get_chat(cid)
+
+
+def delete_chat(cid: int):
+    with _conn() as c:
+        c.execute("DELETE FROM chats WHERE id=?", (cid,))
 
 
 # ---------------- skills ----------------

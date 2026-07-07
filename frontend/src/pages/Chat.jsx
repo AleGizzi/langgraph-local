@@ -15,10 +15,55 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [showConfig, setShowConfig] = useState(true);
+  const [chats, setChats] = useState([]);
+  const [chatId, setChatId] = useState(null);
   const abortRef = useRef(null);
   const endRef = useRef(null);
+  const chatIdRef = useRef(null);
+  chatIdRef.current = chatId;
 
-  useEffect(() => { api("/personas").then(setPersonas).catch(() => {}); }, []);
+  const loadChats = () => api("/chats").then(setChats).catch(() => {});
+  useEffect(() => {
+    api("/personas").then(setPersonas).catch(() => {});
+    loadChats();
+  }, []);
+
+  const persist = async (agentCfg, msgs) => {
+    const clean = msgs.filter((m) => !m.live)
+      .map(({ role, content }) => ({ role, content }));
+    if (!clean.length) return;
+    try {
+      if (chatIdRef.current) {
+        await api(`/chats/${chatIdRef.current}`, { method: "PUT",
+          body: { agent: agentCfg, messages: clean,
+                  title: chats.find((c) => c.id === chatIdRef.current)?.title || "" } });
+      } else {
+        const saved = await api("/chats", { method: "POST",
+          body: { agent: agentCfg, messages: clean } });
+        setChatId(saved.id);
+      }
+      loadChats();
+    } catch { /* persistence is best-effort */ }
+  };
+
+  const newChat = () => { setChatId(null); setMessages([]); };
+
+  const openChat = async (c) => {
+    try {
+      const full = await api(`/chats/${c.id}`);
+      setChatId(full.id);
+      setMessages(full.messages.map((m) => ({ ...m, tools: [] })));
+      if (full.agent?.model) setAgent(full.agent);
+    } catch (e) { toast(e.message, true); }
+  };
+
+  const deleteChat = async (c, e) => {
+    e.stopPropagation();
+    if (!confirm(`Delete chat "${c.title}"?`)) return;
+    await api(`/chats/${c.id}`, { method: "DELETE" });
+    if (chatId === c.id) newChat();
+    loadChats();
+  };
   useEffect(() => {
     // Default model once discovered.
     if (agent.model) return;
@@ -114,10 +159,29 @@ export default function Chat() {
       });
     }
     setStreaming(false);
+    // Persist the finished turn (functional read of the final state).
+    setMessages((ms) => { persist(agent, ms); return ms; });
   };
 
   return (
     <div className="chat-layout">
+      <div className="chat-history">
+        <button className="btn primary" style={{ width: "100%", justifyContent: "center" }}
+          onClick={newChat}>＋ New chat</button>
+        <div className="chat-history-list">
+          {chats.map((c) => (
+            <div key={c.id}
+              className={"chat-history-item" + (c.id === chatId ? " active" : "")}
+              onClick={() => openChat(c)} title={c.title}>
+              <span className="chi-title">{c.title}</span>
+              <span className="chi-meta">{c.agent?.model || ""} · {c.message_count} msg</span>
+              <button className="icon-btn chi-del" title="Delete"
+                onClick={(e) => deleteChat(c, e)}>🗑</button>
+            </div>
+          ))}
+          {!chats.length && <div className="help" style={{ padding: 8 }}>No saved chats yet.</div>}
+        </div>
+      </div>
       <div className="chat-main">
         <div className="page-head" style={{ marginBottom: 10 }}>
           <div>

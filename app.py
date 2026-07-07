@@ -222,6 +222,50 @@ def tool_file_delete(filename):
 
 # ---------------- chat ----------------
 
+def _validate_chat(data: dict) -> dict:
+    if not isinstance(data, dict):
+        abort(400, "invalid body")
+    msgs = [m for m in (data.get("messages") or [])
+            if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
+    title = (data.get("title") or "").strip()
+    if not title:
+        first = next((m["content"] for m in msgs if m["role"] == "user"), "")
+        title = (str(first)[:64] or "New chat").strip()
+    return {"title": title, "agent": data.get("agent") or {},
+            "messages": [{"role": m["role"], "content": str(m.get("content", ""))}
+                         for m in msgs]}
+
+
+@app.get("/api/chats")
+def chats_list():
+    return jsonify(storage.list_chats())
+
+
+@app.post("/api/chats")
+def chats_create():
+    return jsonify(storage.create_chat(_validate_chat(request.get_json(force=True))))
+
+
+@app.get("/api/chats/<int:cid>")
+def chats_get(cid):
+    chat_obj = storage.get_chat(cid)
+    if not chat_obj:
+        abort(404)
+    return jsonify(chat_obj)
+
+
+@app.put("/api/chats/<int:cid>")
+def chats_update(cid):
+    if not storage.get_chat(cid):
+        abort(404)
+    return jsonify(storage.update_chat(cid, _validate_chat(request.get_json(force=True))))
+
+
+@app.delete("/api/chats/<int:cid>")
+def chats_delete(cid):
+    storage.delete_chat(cid)
+    return jsonify({"ok": True})
+
 @app.post("/api/chat")
 def chat():
     import engine
