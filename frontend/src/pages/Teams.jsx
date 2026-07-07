@@ -50,6 +50,7 @@ export default function Teams() {
             </div>
             <div className="card-actions">
               <button className="icon-btn" title="Open in canvas" onClick={(e) => { e.stopPropagation(); location.hash = `#/flow/${t.id}`; }}>🎨</button>
+              <button className="icon-btn" title="Pixel studio" onClick={(e) => { e.stopPropagation(); location.hash = `#/pixel/${t.id}`; }}>👾</button>
               <button className="icon-btn" title="Edit" onClick={(e) => { e.stopPropagation(); setEditing(t); }}>✏️</button>
               <button className="icon-btn" title="Duplicate" onClick={(e) => dup(t, e)}>📋</button>
               <button className="icon-btn" title="Delete" onClick={(e) => del(t, e)}>🗑️</button>

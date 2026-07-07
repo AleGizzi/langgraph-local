@@ -95,6 +95,7 @@ export default function TeamPage({ teamId }) {
           <p className="page-sub">{team.description || team.topology + " topology"}</p>
         </div>
         <button className="btn" onClick={() => (location.hash = `#/flow/${teamId}`)}>🎨 Canvas</button>
+        <button className="btn" onClick={() => (location.hash = `#/pixel/${teamId}`)}>👾 Pixel</button>
         <button className="btn" onClick={() => setEditing(true)}>✏️ Edit</button>
         <button className="btn" onClick={() => (location.hash = "#/runs")}>🗂️ History</button>
       </div>

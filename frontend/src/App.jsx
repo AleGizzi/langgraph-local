@@ -12,6 +12,7 @@ import Toolbox from "./pages/Toolbox.jsx";
 import FlowEditor from "./pages/FlowEditor.jsx";
 import Chat from "./pages/Chat.jsx";
 import Knowledge from "./pages/Knowledge.jsx";
+import PixelStudio from "./pages/PixelStudio.jsx";
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -74,13 +75,20 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
-  const active = ["team", "flow"].includes(route.page) ? "teams" : route.page === "run" ? "runs" : route.page;
+  const active = ["team", "flow", "pixel"].includes(route.page) ? "teams" : route.page === "run" ? "runs" : route.page;
 
-  // The flow editor is a full-viewport page without the normal page wrapper.
+  // Full-viewport pages without the normal page wrapper.
   if (route.page === "flow" && route.id) {
     return (
       <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs, theme }}>
         <FlowEditor teamId={+route.id} key={route.id} />
+      </AppCtx.Provider>
+    );
+  }
+  if (route.page === "pixel" && route.id) {
+    return (
+      <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs, theme }}>
+        <PixelStudio teamId={+route.id} key={route.id} />
       </AppCtx.Provider>
     );
   }
