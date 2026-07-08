@@ -7,6 +7,7 @@ export default function ImageGen() {
   const [prompt, setPrompt] = useState("");
   const [negative, setNegative] = useState("");
   const [aspect, setAspect] = useState("1152*896");
+  const [speed, setSpeed] = useState("Extreme Speed");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
@@ -104,7 +105,7 @@ export default function ImageGen() {
       setGenerating(true);
       const r = await api("/imagegen/generate", {
         method: "POST",
-        body: { prompt, negative, aspect },
+        body: { prompt, negative, aspect, performance: speed },
       });
 
       if (r.error) {
@@ -146,7 +147,7 @@ export default function ImageGen() {
       <div className="sub">Local image generation on your GPU</div>
 
       {displayError && (
-        <div className="param-hint" style={{ color: "var(--err)", marginBottom: 12 }}>
+        <div className="param-hint" style={{ color: "var(--red)", marginBottom: 12 }}>
           Error: {displayError}
         </div>
       )}
@@ -248,6 +249,27 @@ export default function ImageGen() {
                 <option value="1024*1024">Square (1024x1024)</option>
               </select>
             </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>Speed / quality</label>
+              <select
+                value={speed}
+                onChange={(e) => setSpeed(e.target.value)}
+                disabled={generating}
+                style={{
+                  width: "100%",
+                  padding: "8px 6px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  opacity: generating ? 0.6 : 1,
+                }}
+              >
+                <option value="Extreme Speed">Extreme Speed (~8 steps, fastest)</option>
+                <option value="Lightning">Lightning (~4 steps)</option>
+                <option value="Speed">Speed (30 steps, slow)</option>
+                <option value="Quality">Quality (60 steps, slowest)</option>
+              </select>
+            </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button
                 className="btn primary"
@@ -268,7 +290,9 @@ export default function ImageGen() {
           </div>
 
           <div className="page-sub" style={{ marginBottom: 12 }}>
-            {generating ? "This can take a few minutes on a slow GPU…" : "Ready to generate"}
+            {generating
+              ? "Generating… on a low-VRAM GPU this takes minutes even in fast mode — leave it running."
+              : "Tip: on a 4 GB GPU use Extreme Speed / Lightning; the 30-60 step modes can take ~40 min per image."}
           </div>
         </div>
       )}

@@ -78,6 +78,19 @@ IMAGES_DIR = os.environ.get(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "images"),
 )
 
+# How long generate() will poll a job before giving up. SDXL on a weak/low-VRAM
+# GPU is SLOW (measured ~86s/step on a 4GB P600 → ~40min for 30 steps), so this
+# is generous and configurable. Prefer a fast `performance` mode (below) over a
+# huge timeout.
+GEN_TIMEOUT = int(os.environ.get("IMAGEGEN_TIMEOUT", "2400"))
+
+# Fooocus performance presets → diffusion steps. LCM/Lightning-distilled modes
+# cut steps ~4-8x, which is the difference between usable and unusable on weak
+# hardware. "Extreme Speed" (LCM, ~8 steps) is a safe fast default (no extra
+# LoRA download); "Speed"/"Quality" are the full-step high-quality modes.
+PERFORMANCE_MODES = ("Extreme Speed", "Lightning", "Hyper-SD", "Speed", "Quality")
+DEFAULT_PERFORMANCE = os.environ.get("IMAGEGEN_PERFORMANCE", "Extreme Speed")
+
 REPO_URL = "https://github.com/mrhan1993/Fooocus-API"
 TORCH_INDEX_URL = "https://download.pytorch.org/whl/cu121"
 
@@ -347,8 +360,13 @@ def _save_result_items(items) -> list:
 
 
 def generate(prompt: str, negative: str = "", steps: int = None,
-            aspect: str = "1152*896") -> dict:
-    """POST a text-to-image job to Fooocus-API and poll it to completion."""
+            aspect: str = "1152*896", performance: str = None) -> dict:
+    """POST a text-to-image job to Fooocus-API and poll it to completion.
+
+    `performance` picks a Fooocus preset (see PERFORMANCE_MODES); the default is
+    a fast LCM/distilled mode so generation is tolerable on weak GPUs. `steps`
+    optionally overrides the step count directly.
+    """
     try:
         st = backend_status()
         if not st["running"]:
@@ -356,10 +374,12 @@ def generate(prompt: str, negative: str = "", steps: int = None,
                      "error": "Fooocus-API server is not running — start it "
                               "first (see backend_status/start_server)"}
 
+        perf = performance if performance in PERFORMANCE_MODES else DEFAULT_PERFORMANCE
         body = {
             "prompt": prompt,
             "negative_prompt": negative,
             "aspect_ratios_selection": aspect,
+            "performance_selection": perf,
             "image_number": 1,
             "async_process": True,
         }
@@ -381,7 +401,7 @@ def generate(prompt: str, negative: str = "", steps: int = None,
             return {"ok": False, "images": [],
                      "error": "Fooocus-API did not return a job_id or an image"}
 
-        deadline = time.time() + 600
+        deadline = time.time() + GEN_TIMEOUT
         result_items = None
         while time.time() < deadline:
             time.sleep(2)
@@ -406,8 +426,9 @@ def generate(prompt: str, negative: str = "", steps: int = None,
 
         if result_items is None:
             return {"ok": False, "images": [],
-                     "error": "timed out waiting for image generation (600s) — "
-                              "a 4GB GPU can be slow, try again or check "
+                     "error": f"timed out waiting for image generation "
+                              f"({GEN_TIMEOUT}s) — a low-VRAM GPU can be very slow; "
+                              "use a faster performance mode or check "
                               f"{FOOOCUS_DIR}/server.log"}
 
         saved = _save_result_items(result_items)

@@ -257,7 +257,8 @@ def imagegen_generate():
         abort(400, "prompt is required")
     return jsonify(imagegen.generate(
         prompt, negative=body.get("negative", ""),
-        steps=body.get("steps"), aspect=body.get("aspect") or "1152*896"))
+        steps=body.get("steps"), aspect=body.get("aspect") or "1152*896",
+        performance=body.get("performance")))
 
 
 @app.get("/api/imagegen/gallery")
