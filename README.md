@@ -38,6 +38,9 @@ powered by **Ollama** and/or **LM Studio**. No cloud, no API keys, no telemetry.
   manually or with the **AI wizard**: describe what you need in plain language and
   a local model drafts it (tool code is load-validated with one auto-fix round);
   you review, refine and save.
+- **Image generation**: install **Fooocus** (SDXL) from the Models page with one
+  click and generate images locally — from the UI or via the `generate_image` agent
+  tool. VRAM-assessed against your hardware; see [`docs/image-generation.md`](docs/image-generation.md).
 - **Live streaming**: token-by-token output per agent over SSE, with tool calls,
   routing decisions and revision loops visualized as they happen.
 - **Tools**: calculator, current datetime, HTTP fetch, and sandboxed file read/write

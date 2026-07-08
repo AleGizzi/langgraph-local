@@ -12,6 +12,7 @@ needed.
 | [`frontend.md`](frontend.md) | You're working in the React SPA — pages, components, state, streaming, theming. |
 | [`operations.md`](operations.md) | You're running/deploying it — native, Docker, env vars, data layout, backup, troubleshooting. |
 | [`knowledge-base.md`](knowledge-base.md) | You're wiring the knowledge vault to Obsidian/Logseq or configuring where it lives. |
+| [`image-generation.md`](image-generation.md) | You're setting up local image generation (Fooocus) or using the `generate_image` tool. |
 
 ## For AI agents maintaining this repo
 
