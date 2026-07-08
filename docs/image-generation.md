@@ -68,14 +68,30 @@ The app's **Settings** page includes a **Local image generation** table that ass
 
 ### From the Gallery
 
-1. Go to the **Image** page.
+1. Open **Models** → the **Image generation (Fooocus)** section.
 2. Enter a prompt (e.g., "a serene mountain landscape at sunset").
 3. (Optional) Add a negative prompt (e.g., "blurry, low quality").
-4. Choose aspect ratio (16:9, 1:1, etc.).
+4. Choose aspect ratio and a **Speed / quality** mode (see below).
 5. Click **Generate**.
 6. Images appear in the gallery below. Click to view full-size.
 
 Generated images are saved to `data/images/` and listed with timestamps.
+
+### Speed / quality modes (the key to usability on weak GPUs)
+
+Fooocus performance presets set how many diffusion steps run — the dominant cost.
+On a slow/low-VRAM GPU this is the difference between usable and unusable:
+
+| Mode | Steps | On the 4 GB P600 (measured ~86s/step) |
+|------|-------|----------------------------------------|
+| **Extreme Speed** (default) | ~8 (LCM) | **~6 min/image** ✓ verified |
+| **Lightning** | ~4 | ~3–4 min (needs a small extra LoRA download) |
+| **Speed** | 30 | ~40 min |
+| **Quality** | 60 | ~80 min |
+
+Default is **Extreme Speed** — on a strong GPU switch to Speed/Quality for more
+detail. Overridable app-wide with `IMAGEGEN_PERFORMANCE`; the generation poll
+timeout is `IMAGEGEN_TIMEOUT` (default 2400s).
 
 ### From Agents
 
