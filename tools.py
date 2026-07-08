@@ -91,6 +91,27 @@ def knowledge_write(title: str, content: str) -> str:
         return f"Error: {e}"
 
 
+@tool
+def generate_image(prompt: str, negative: str = "") -> str:
+    """Generate an image locally from a text prompt using the Fooocus backend.
+    Use when the task asks for a picture, illustration, logo or visual. `prompt`
+    describes the desired image; `negative` (optional) lists things to avoid.
+    Returns the saved image path (viewable at /api/imagegen/images/<name>), or an
+    error if the image backend is not installed/running (see the Models page)."""
+    import imagegen
+    st = imagegen.backend_status()
+    if not st.get("running"):
+        return ("Image backend is not running. Install/start Fooocus from the "
+                "Models page (Image generation section) first.")
+    res = imagegen.generate(prompt, negative=negative)
+    if not res.get("ok"):
+        return f"Image generation failed: {res.get('error')}"
+    names = res.get("images") or []
+    if not names:
+        return "No image was returned."
+    return "Generated image(s): " + ", ".join(f"/api/imagegen/images/{n}" for n in names)
+
+
 def make_workspace_tools(workspace: str):
     """File tools bound to a run's workspace directory (path-traversal safe)."""
 
@@ -145,6 +166,7 @@ TOOL_CATALOG = {
     "http_get": "Fetch a URL (needs internet)",
     "files": "Read/write files in the run workspace",
     "knowledge": "Search/read/write the shared knowledge vault",
+    "generate_image": "Generate an image locally (needs Fooocus running)",
 }
 
 CUSTOM_TOOLS_DIR = os.environ.get(
@@ -262,6 +284,8 @@ def resolve_tools(names: list, workspace: str) -> list:
             tools.extend(make_workspace_tools(workspace))
         elif n == "knowledge":
             tools.extend([knowledge_search, knowledge_read, knowledge_write])
+        elif n == "generate_image":
+            tools.append(generate_image)
         elif n in custom_by_name:
             tools.append(custom_by_name[n])
     return tools

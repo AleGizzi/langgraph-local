@@ -1,6 +1,7 @@
 import React from "react";
 import { useApp } from "../App.jsx";
 import CatalogTable from "../components/CatalogTable.jsx";
+import ImageGen from "../components/ImageGen.jsx";
 
 export default function Models() {
   const { models, health } = useApp();
@@ -45,6 +46,7 @@ export default function Models() {
         </div>
         <CatalogTable compact />
       </div>
+      <ImageGen />
     </>
   );
 }

@@ -220,6 +220,58 @@ def tool_file_delete(filename):
     return jsonify({"ok": True})
 
 
+# ---------------- image generation (Fooocus) ----------------
+
+@app.get("/api/imagegen/status")
+def imagegen_status():
+    import imagegen
+    st = imagegen.backend_status()
+    st["install"] = imagegen.install_status()
+    return jsonify(st)
+
+
+@app.post("/api/imagegen/install")
+def imagegen_install():
+    import imagegen
+    return jsonify(imagegen.install_backend())
+
+
+@app.post("/api/imagegen/start")
+def imagegen_start():
+    import imagegen
+    return jsonify(imagegen.start_server())
+
+
+@app.post("/api/imagegen/stop")
+def imagegen_stop():
+    import imagegen
+    return jsonify(imagegen.stop_server())
+
+
+@app.post("/api/imagegen/generate")
+def imagegen_generate():
+    import imagegen
+    body = request.get_json(force=True) or {}
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        abort(400, "prompt is required")
+    return jsonify(imagegen.generate(
+        prompt, negative=body.get("negative", ""),
+        steps=body.get("steps"), aspect=body.get("aspect") or "1152*896"))
+
+
+@app.get("/api/imagegen/gallery")
+def imagegen_gallery():
+    import imagegen
+    return jsonify({"images": imagegen.list_images()})
+
+
+@app.get("/api/imagegen/images/<path:filename>")
+def imagegen_image(filename):
+    import imagegen
+    return send_from_directory(os.path.realpath(imagegen.IMAGES_DIR), filename)
+
+
 # ---------------- knowledge base ----------------
 
 @app.get("/api/knowledge")
