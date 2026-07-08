@@ -210,14 +210,22 @@ def _install_worker():
             _set(key, done=True, status="cancelled")
             return
 
+        # Install CUDA torch from the cu121 index. We do NOT pin exact versions:
+        # the cu121 index drops old builds over time (e.g. 2.1.0 vanished, leaving
+        # 2.2.0+), so a hard pin breaks. Latest cu121 wheels still support the
+        # Pascal-class P600 (sm_61). Falls back to CPU torch if CUDA wheels fail.
         _set(key, status="installing torch (CUDA 12.1 wheels)", progress=80)
-        r = _run([_venv_pip(), "install",
-                  "torch==2.1.0", "torchvision==0.16.0", "torchaudio==2.1.0",
+        r = _run([_venv_pip(), "install", "torch", "torchvision", "torchaudio",
                   "--index-url", TORCH_INDEX_URL], cwd=FOOOCUS_DIR)
         if r.returncode != 0:
-            _set(key, done=True, status="error",
-                 error=f"torch install failed: {r.stderr[-2000:]}")
-            return
+            _set(key, status="CUDA torch unavailable — installing CPU torch",
+                 progress=88)
+            r = _run([_venv_pip(), "install", "torch", "torchvision", "torchaudio"],
+                     cwd=FOOOCUS_DIR)
+            if r.returncode != 0:
+                _set(key, done=True, status="error",
+                     error=f"torch install failed: {r.stderr[-2000:]}")
+                return
 
         _set(key, done=True, progress=100, status="installed", error=None)
     except Exception as e:  # noqa: BLE001
