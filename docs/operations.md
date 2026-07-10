@@ -133,6 +133,11 @@ All paths default to subdirectories under the project root. In Docker, these are
 | `AGENTS_CUSTOM_TOOLS` | `{project}/custom_tools` | Directory of custom tool Python modules |
 | `OLLAMA_MODELS` | (auto-detected) | Path to Ollama models directory; used by system info to estimate storage |
 | `RUNNING_IN_DOCKER` | (unset) | Set to `1` inside Docker; disables native provider installer |
+| `FOOOCUS_URL` | `http://localhost:8888` | Fooocus-API server base URL for image generation |
+| `FOOOCUS_DIR` | `~/.local/share/local-agents-studio/fooocus-api` | Directory where Fooocus-API repo is cloned and venv is created |
+| `IMAGES_DIR` | `{project}/data/images` | Directory for storing generated images |
+| `IMAGEGEN_TIMEOUT` | `2400` | Timeout in seconds for polling image generation jobs; increase for low-VRAM GPUs |
+| `IMAGEGEN_PERFORMANCE` | `Extreme Speed` | Default Fooocus performance preset (one of: `Extreme Speed`, `Lightning`, `Hyper-SD`, `Speed`, `Quality`) |
 
 ### Setting Environment Variables
 
@@ -174,6 +179,10 @@ docker compose up -d --env-file .env.production
   - Agents auto-export findings to `runs/` subdirectory
   - Can be opened directly in Obsidian, Logseq, or Foam
 
+- **`data/images/`**  
+  Generated images from Fooocus-API (text-to-image). Images persist independently of the Fooocus-API process.
+  Directory configured via `IMAGES_DIR` environment variable.
+
 - **`custom_tools/`**  
   Python modules. Add `.py` files with `@tool` functions:
   ```python
@@ -205,7 +214,7 @@ docker compose up -d --env-file .env.production
 
 ### Backup
 
-All user data lives in two directories. Back them up regularly:
+All user data lives in `data/` and `custom_tools/`. Back them up regularly:
 
 ```bash
 tar czf ~/agents-backup-$(date +%Y%m%d).tar.gz \
@@ -214,9 +223,14 @@ tar czf ~/agents-backup-$(date +%Y%m%d).tar.gz \
 ```
 
 Or use your file manager / cloud sync (Synology, Nextcloud, Dropbox, etc.):
-- Add `data/` to sync
+- Add `data/` to sync (includes teams, runs, knowledge, generated images)
 - Add `custom_tools/` to sync
 - Exclude `data/model_catalog.json` (ephemeral cache)
+
+To also backup the Fooocus-API installation (large, optional):
+```bash
+tar czf ~/fooocus-backup-$(date +%Y%m%d).tar.gz ~/.local/share/local-agents-studio/
+```
 
 ### Restore
 

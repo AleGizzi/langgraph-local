@@ -17,16 +17,8 @@ Health check with provider availability.
 {
   "ok": true,
   "providers": {
-    "ollama": {
-      "installed": bool,
-      "running": bool,
-      "version": "string|null"
-    },
-    "lmstudio": {
-      "installed": bool,
-      "running": bool,
-      "version": "string|null"
-    }
+    "ollama":   {"up": bool, "url": "string", "models": int},
+    "lmstudio": {"up": bool, "url": "string", "models": int}
   }
 }
 ```
@@ -113,7 +105,9 @@ Complete system report: hardware, local installations, setup guides, and model a
 
 ### POST /api/setup/install
 
-Install a provider (Ollama or LM Studio).
+Install a provider (Ollama user-level, or download the LM Studio AppImage).
+Runs in the background; poll `GET /api/install/status` under the key
+`setup::<provider>`. Refused inside Docker (Ollama is bundled there).
 
 **Request body:**
 ```json
@@ -125,8 +119,8 @@ Install a provider (Ollama or LM Studio).
 **Response:**
 ```json
 {
-  "success": bool,
-  "message": "string|null"
+  "ok": bool,
+  "error": "string|null"
 }
 ```
 
@@ -269,38 +263,27 @@ Start a model installation (download + pull into Ollama or LM Studio).
 }
 ```
 
-**Response:**
-```json
-{
-  "provider": "string",
-  "model": "string",
-  "started": bool,
-  "status": "downloading|pulling|done|error",
-  "progress": {
-    "total": int,
-    "completed": int,
-    "percent": float
-  } | null,
-  "error": "string|null"
-}
-```
+**Response:** `{"ok": true}` on start, or `{"ok": false, "error": "already installing"}`.
+Progress is polled via `GET /api/install/status`.
 
 ### GET /api/install/status
 
-Get status of all active and recent model installations.
+Status of all installs (models and provider setups), keyed `"<provider>::<model>"`
+— e.g. `"ollama::qwen2.5:7b"` or `"setup::ollama"` for first-run provider installs.
 
 **Response:**
 ```json
 {
-  "ollama": [
-    {
-      "model": "string",
-      "status": "downloading|pulling|done|error",
-      "progress": {"total": int, "completed": int, "percent": float} | null,
-      "error": "string|null"
-    }
-  ],
-  "lmstudio": [...]
+  "ollama::qwen2.5:7b": {
+    "provider": "string",
+    "model": "string",
+    "progress": float (0-100),
+    "status": "string (human-readable stage)",
+    "error": "string|null",
+    "done": bool,
+    "cancel": bool,
+    "started_at": float
+  }
 }
 ```
 
@@ -406,6 +389,113 @@ Delete a custom tool file.
   "ok": true
 }
 ```
+
+---
+
+## Image Generation
+
+Local image generation via Fooocus-API (text-to-image diffusion). All routes require Fooocus-API to be installed and running (see `imagegen.py` for setup).
+
+### GET /api/imagegen/status
+
+Get the installation and runtime status of Fooocus-API.
+
+**Response:**
+```json
+{
+  "installed": bool,
+  "running": bool,
+  "url": "string (Fooocus-API base URL)",
+  "port": int (default 8888),
+  "dir": "string (installation directory)",
+  "installing": bool,
+  "error": "string|null",
+  "install": {
+    "status": "string",
+    "progress": float (0–100),
+    "error": "string|null",
+    "done": bool
+  } | null
+}
+```
+
+### POST /api/imagegen/install
+
+Start a background installation of Fooocus-API. Returns immediately; poll status via GET /api/imagegen/status.
+
+**Response:**
+```json
+{
+  "ok": bool,
+  "error": "string|null"
+}
+```
+
+### POST /api/imagegen/start
+
+Launch the Fooocus-API server (if installed). No-op if already running.
+
+**Response:**
+```json
+{
+  "ok": bool,
+  "error": "string|null"
+}
+```
+
+### POST /api/imagegen/stop
+
+Terminate the Fooocus-API server.
+
+**Response:**
+```json
+{
+  "ok": bool
+}
+```
+
+### POST /api/imagegen/generate
+
+Request text-to-image generation. Polls the server asynchronously until completion or timeout.
+
+**Request body:**
+```json
+{
+  "prompt": "string (required)",
+  "negative": "string (optional, what to avoid)",
+  "steps": int|null (optional; uses performance preset default if omitted),
+  "aspect": "string (e.g., '1152*896', default: '1152*896')",
+  "performance": "string (Fooocus preset: 'Extreme Speed'|'Lightning'|'Hyper-SD'|'Speed'|'Quality', default: 'Extreme Speed')"
+}
+```
+
+**Response:**
+```json
+{
+  "ok": bool,
+  "images": ["filename.png", ...],
+  "error": "string|null"
+}
+```
+
+Generated images are saved to `IMAGES_DIR` and survive independently of the Fooocus-API process.
+
+### GET /api/imagegen/gallery
+
+List recently generated images (newest first).
+
+**Response:**
+```json
+{
+  "images": ["filename.png", ...]
+}
+```
+
+### GET /api/imagegen/images/<path:filename>
+
+Download a generated image by filename (with path traversal protection).
+
+**Response:** image file (e.g., PNG)
 
 ---
 
@@ -842,6 +932,11 @@ Subscribe to live events from a run. Replays persisted events first (for reconne
   {"type": "decision", "content": "string (decision explanation)"}
   ```
 
+- **`artifact`** – Agent declared a file in its output. Content is a relative path from the run workspace; the file is persisted and replayed on reconnect.
+  ```json
+  {"type": "artifact", "agent": "string", "content": "string (relative path)"}
+  ```
+
 - **`agent_end`** – Agent finishes
   ```json
   {"type": "agent_end", "agent": "string", "content": "string (agent output)"}
@@ -881,6 +976,12 @@ List output files generated by a run (workspace artifacts).
 ```
 
 Sorted by path.
+
+### GET /api/runs/<int:run_id>/artifacts.zip
+
+Download all run artifacts as a single ZIP file.
+
+**Response:** binary ZIP file (mimetype: `application/zip`), named `run-{id}.zip`
 
 ### GET /api/runs/<int:run_id>/artifacts/<path:relpath>
 

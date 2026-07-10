@@ -54,13 +54,22 @@ def _unique_path(rel: str) -> str:
     return f"{stem}-{i}.md"
 
 
+def _yaml_str(v) -> str:
+    """Quote string values so titles with ':' or '#' stay valid YAML
+    (Obsidian's properties panel rejects bare 'title: Task: foo')."""
+    s = str(v)
+    if isinstance(v, (int, float)) or re.fullmatch(r"[\w-]+", s):
+        return s
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def _frontmatter(meta: dict) -> str:
     lines = ["---"]
     for k, v in meta.items():
         if isinstance(v, (list, tuple)):
-            lines.append(f"{k}: [{', '.join(str(x) for x in v)}]")
+            lines.append(f"{k}: [{', '.join(_yaml_str(x) for x in v)}]")
         else:
-            lines.append(f"{k}: {v}")
+            lines.append(f"{k}: {_yaml_str(v)}")
     lines.append("---\n")
     return "\n".join(lines)
 
@@ -69,7 +78,8 @@ def write_note(title: str, content: str, tags=None, meta_extra: dict = None,
                subdir: str = "") -> str:
     """Create a note with frontmatter. Returns the vault-relative path."""
     _ensure()
-    tags = tags or []
+    # Obsidian tags cannot contain spaces — normalize everything to slugs.
+    tags = [_slug(t, "tag") for t in (tags or [])]
     day = time.strftime("%Y-%m-%d")
     rel = os.path.join(subdir, f"{day}-{_slug(title)}.md") if subdir else f"{day}-{_slug(title)}.md"
     if subdir:
@@ -90,8 +100,10 @@ def export_run(run_id: int, team_name: str, task: str, final: str) -> str:
     if not (final or "").strip():
         return ""
     title = task.strip().split("\n")[0][:70] or f"Run {run_id}"
+    # [[Team Name]] is an intentional unresolved wikilink: create that note in
+    # Obsidian and its backlinks/graph collect every output this team produced.
     body = (f"> Task: {task.strip()}\n\n"
-            f"*Produced by team **{team_name}** — [[runs]] #{run_id}*\n\n"
+            f"*Produced by team [[{team_name}]] — run #{run_id}*\n\n"
             f"---\n\n{final.strip()}")
     return write_note(
         title, body, tags=["team-output", _slug(team_name, "team")],

@@ -83,12 +83,12 @@ const { models, tools, skills, paramSpecs, health, reloadCatalogs, theme } = use
 | `TeamPage.jsx` | `#/team/:id` | Single team: flow preview, task input, run launcher, live timeline |
 | `Runs.jsx` | `#/runs` | Table of all run history with status/duration/time |
 | `RunDetail.jsx` | `#/run/:id` | Single run: task, live or persisted timeline of events |
-| `Models.jsx` | `#/models` | Lists discovered models from Ollama and LM Studio; links to Setup and Settings |
+| `Models.jsx` | `#/models` | Lists discovered models from Ollama and LM Studio; includes Fooocus image generation UI; links to Setup and Settings |
 | `Personas.jsx` | `#/personas` | Grid of reusable agent templates (prompt, model, tools, skills); CRUD via modal |
 | `Toolbox.jsx` | `#/toolbox` | Skills gallery + custom tool file editor; inline AI wizard for both |
 | `Setup.jsx` | `#/setup` | Installation wizards for Ollama and LM Studio; system info and install guides |
-| `Settings.jsx` | `#/settings` | Hardware assessment, model compatibility verdicts, dream team suggestions, image gen table |
-| `Chat.jsx` | `#/chat` | Direct chat with persona config (prompt, model, params, tools, skills); saves chats to backend |
+| `Settings.jsx` | `#/settings` | Hardware assessment, model compatibility verdicts, dream team suggestions |
+| `Chat.jsx` | `#/chat` | Direct chat with persona config (prompt, model, params, tools, skills). Persisted chat history sidebar with CRUD; load, save, rename, and delete past conversations from backend |
 | `Knowledge.jsx` | `#/knowledge` | Markdown vault browser with search; displays frontmatter and content |
 | `FlowEditor.jsx` | `#/flow/:id` (full viewport) | @xyflow/react canvas: drag agents, connect, edit config in right panel |
 | `PixelStudio.jsx` | `#/pixel/:id` (full viewport) | GBA-style canvas: pixel sprites, drag nodes, connect mode, live run animation |
@@ -102,9 +102,11 @@ const { models, tools, skills, paramSpecs, health, reloadCatalogs, theme } = use
 | `AgentFields.jsx` | Form block for agent-like objects: name, role, model picker, system prompt, hyperparams, tools, skills. Exported: `AgentFields` (default), `ModelSelect`, `ParamsEditor`, `ToolsPicker`, `SkillsPicker` | `Personas`, `Toolbox` (modal), `FlowEditor`, `PixelStudio`, `Chat`, `TeamPage`, `TeamEditor` |
 | `CatalogTable.jsx` | Searchable model catalog table with category filters, install buttons, and dream team cards. Polls install status. | `Models`, `Settings` (both as `<CatalogTable />` and `<CatalogTable dreamOnly />`) |
 | `GraphEditor.jsx` | Read-only @xyflow/react graph viewer used in TeamEditor for topology="graph" teams. Supports add/delete nodes and edges. | `TeamEditor` (modal) |
+| `ImageGen.jsx` | Fooocus-API install/start/generate UI + gallery. Shows install progress, generation parameters (prompt, negative, aspect, performance), and displays recently generated images. | `Models` (as a section card) |
 | `ImageModels.jsx` | Table of local image generation models (Stable Diffusion runners). | `Settings` |
-| `TeamEditor.jsx` | Modal: create/edit teams. Handles all topologies (pipeline, supervisor, graph), agents list, settings (quality_loop, parallel). Uses `AgentFields` for each agent and `GraphEditor` for graph topology. | `Teams`, `TeamPage` (modal) |
-| `Timeline.jsx` | Renders a sequence of event items (banners, step cards, decisions, errors, final output). Powers live and persisted run display. Includes `StepCard`, `FinalCard`, `Artifacts`. Exported: `Timeline` (default), `useRunStream`, `itemsFromPersistedEvents` | `TeamPage`, `RunDetail`, `FlowEditor`, `PixelStudio` |
+| `TeamEditor.jsx` | Modal: create/edit teams. Handles all topologies (pipeline, supervisor, graph), agents list, settings (quality_loop, parallel). Includes integrated AI wizard (WizardPanel with kind=team) for drafting team from prose description. Uses `AgentFields` for each agent and `GraphEditor` for graph topology. | `Teams`, `TeamPage` (modal) |
+| `Timeline.jsx` | Renders a sequence of event items (banners, step cards, decisions, artifact files, errors, final output). Powers live and persisted run display. Includes `StepCard`, `FinalCard`, `Artifacts` (with Download-all ZIP button). Exported: `Timeline` (default), `useRunStream`, `itemsFromPersistedEvents` | `TeamPage`, `RunDetail`, `FlowEditor`, `PixelStudio` |
+| `WizardPanel.jsx` | Shared AI-wizard panel for generating drafts. `kind` prop selects: `skill` (draft a behavior instruction), `tool` (draft Python tool code), or `team` (draft multi-agent ensemble). Includes model picker and refinement feedback loop. | `Toolbox` (for skills/tools), `TeamEditor` (for team drafts) |
 
 ---
 
