@@ -380,7 +380,12 @@ def chat():
             for ev in engine.chat_stream(agent, messages, workspace, skill_map):
                 yield _sse(ev)
         except Exception as e:  # noqa: BLE001
-            yield _sse({"type": "error", "content": f"{type(e).__name__}: {e}"})
+            msg = f"{type(e).__name__}: {e}"
+            if "does not support tools" in msg.lower():
+                msg += (" — this model can't call tools in chat. Remove its tools "
+                        "here, or use it in a team run where tool work is "
+                        "delegated to a capable model automatically.")
+            yield _sse({"type": "error", "content": msg})
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

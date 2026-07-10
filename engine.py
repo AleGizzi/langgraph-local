@@ -31,6 +31,55 @@ from tools import resolve_tools
 
 MAX_TOOL_ROUNDS = 5
 
+# Preferred executor for tool delegation (see _delegate_loop): agents whose
+# model can't call tools hand tool work to this model. "provider::model" or
+# bare model name (assumed ollama); empty = auto-pick a tool-capable model.
+TOOL_DELEGATE_MODEL = os.environ.get("TOOL_DELEGATE_MODEL", "")
+
+# (provider, model) -> bool. Seeded from the catalog's capability tags,
+# corrected at runtime when a provider rejects tool binding.
+_tool_support_cache = {}
+
+
+def _model_supports_tools(provider: str, model: str) -> bool:
+    key = (provider, model)
+    if key in _tool_support_cache:
+        return _tool_support_cache[key]
+    verdict = None
+    try:
+        import catalog
+        data = catalog.load_cache() or {}
+        base = model.split(":")[0].lower()
+        for m in data.get("models", []):
+            if (m.get("base") or "").lower() == base:
+                caps = [c.lower() for c in (m.get("capabilities") or [])]
+                verdict = "tools" in caps
+                break
+    except Exception:  # noqa: BLE001 - catalog is advisory only
+        verdict = None
+    if verdict is None:
+        verdict = True  # optimistic: the runtime error path corrects this
+    _tool_support_cache[key] = verdict
+    return verdict
+
+
+def _mark_no_tools(provider: str, model: str):
+    _tool_support_cache[(provider, model)] = False
+
+
+# Accept both the fenced form and a bare "DELEGATE: ..." line — small models
+# follow one or the other, rarely both consistently.
+_DELEGATE_BLOCK_RE = re.compile(
+    r"```delegate\s*\n(.*?)```|^[ \t]*DELEGATE:[ \t]*(.+)$",
+    re.DOTALL | re.MULTILINE | re.IGNORECASE)
+
+
+def _find_delegate_request(text: str):
+    m = _DELEGATE_BLOCK_RE.search(text or "")
+    if not m:
+        return None
+    return (m.group(1) or m.group(2) or "").strip() or None
+
 
 class RunCancelled(Exception):
     pass
@@ -49,8 +98,16 @@ class TeamState(TypedDict, total=False):
 
 
 def _strip_reasoning(text: str) -> str:
-    """Remove <think>...</think> blocks emitted by reasoning models (DeepSeek-R1)."""
-    return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
+    """Remove <think>...</think> blocks emitted by reasoning models (DeepSeek-R1).
+
+    If the model spent its whole budget thinking (nothing outside the block),
+    the thinking itself is the only output we have — return it rather than
+    silently producing an empty result.
+    """
+    stripped = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
+    if stripped:
+        return stripped
+    return re.sub(r"</?think>", "", text).strip()
 
 
 # Matches a fenced code block, capturing the info string and the body.
@@ -227,15 +284,28 @@ class TeamRunner:
         llm = self._llm_for(agent)
         tool_list = resolve_tools(agent.get("tools", []), self.workspace)
         tool_map = {t.name: t for t in tool_list}
-        if tool_list:
+        provider = agent.get("provider", "ollama")
+        # Models that can't bind tools (reasoning models like deepseek-r1)
+        # delegate tool work to a tool-capable executor instead of erroring.
+        use_delegate = bool(tool_list) and not _model_supports_tools(provider, agent["model"])
+        if tool_list and not use_delegate:
             llm = llm.bind_tools(tool_list)
 
         with self.llm_gate:
+            if use_delegate:
+                return self._delegate_loop(agent, tool_list, list(messages))
             last_err = None
             for attempt in (1, 2):
                 try:
                     return self._tool_loop(agent, llm, tool_map, list(messages))
                 except Exception as e:  # noqa: BLE001 - translate stalls to a clear error
+                    if tool_list and "does not support tools" in str(e).lower():
+                        # Catalog was wrong/missing — remember and delegate.
+                        _mark_no_tools(provider, agent["model"])
+                        self.emit("decision", agent=agent["name"],
+                                  content=f"{agent['model']} can't use tools natively "
+                                          "— delegating tool work to a capable model.")
+                        return self._delegate_loop(agent, tool_list, list(messages))
                     name = type(e).__name__.lower()
                     if not ("timeout" in name or "timed out" in str(e).lower()):
                         raise
@@ -254,14 +324,116 @@ class TeamRunner:
                 "window."
             ) from last_err
 
-    def _tool_loop(self, agent: dict, llm, tool_map: dict, msgs: list) -> str:
+    # ---------------- tool delegation (models without native tool support) --
+
+    def _delegate_model(self):
+        """Pick the tool-capable model that executes delegated tool work."""
+        if not hasattr(self, "_delegate_cached"):
+            choice = None
+            if TOOL_DELEGATE_MODEL:
+                prov, sep, mdl = TOOL_DELEGATE_MODEL.partition("::")
+                choice = (prov, mdl) if sep else ("ollama", TOOL_DELEGATE_MODEL)
+            else:
+                try:
+                    from providers import list_models
+                    available = list_models()
+                    for prov in ("ollama", "lmstudio"):
+                        models = available.get(prov) or []
+                        pick = (next((m for m in models if m.startswith("qwen2.5:")), None)
+                                or next((m for m in models
+                                         if _model_supports_tools(prov, m)
+                                         and not re.search(r"r1|think", m, re.I)), None))
+                        if pick:
+                            choice = (prov, pick)
+                            break
+                except Exception:  # noqa: BLE001
+                    choice = None
+            self._delegate_cached = choice
+        return self._delegate_cached
+
+    def _delegate_loop(self, agent: dict, tool_list: list, msgs: list) -> str:
+        """Tool use for models that can't bind tools natively.
+
+        The primary model keeps doing what it's good at (e.g. reasoning) and
+        requests capabilities in a fenced ```delegate block; a tool-capable
+        executor model performs the actual tool calls and the result is fed
+        back. Bounded like the native tool loop.
+        """
+        name = agent["name"]
+        delegate = self._delegate_model()
+        if not delegate:
+            self.emit("decision", agent=name,
+                      content="No tool-capable model available for delegation — "
+                              "running without tools.")
+            llm = self._llm_for(agent)
+            return self._tool_loop(agent, llm, {}, msgs)
+
+        dprov, dmodel = delegate
+        self.emit("decision", agent=name,
+                  content=f"{agent['model']} can't call tools natively — tool "
+                          f"requests will be delegated to {dmodel}.")
+        tool_lines = "\n".join(f"- {t.name}: {(t.description or '').strip()[:150]}"
+                               for t in tool_list)
+        aug = (
+            "\n\n## TOOL ACCESS — READ CAREFULLY\n"
+            "You cannot run tools yourself. A tool assistant runs them for you. "
+            "Capabilities available through it:\n" + tool_lines + "\n\n"
+            "To use a capability, end your reply with a single line:\n"
+            "DELEGATE: <one clear, self-contained instruction with every needed value>\n"
+            "…and write NOTHING after that line. The assistant's result arrives "
+            "in the next message; then you continue.\n"
+            "Example:\n"
+            "  DELEGATE: search the knowledge base for \"backup policy\" and "
+            "return the note text\n\n"
+            "STRICT RULES:\n"
+            "- NEVER invent, guess or imagine what a capability would return.\n"
+            "- If the task needs stored data, files, a URL or a calculation, "
+            "your FIRST reply must be a DELEGATE line.\n"
+            "- Only write your final answer once you truly have the results."
+        )
+        msgs = list(msgs)
+        msgs[0] = SystemMessage(content=msgs[0].content + aug)
+        llm = self._llm_for(agent)
+
+        executor_agent = {"name": name, "model": dmodel, "provider": dprov,
+                          "params": {"temperature": 0.1, "num_predict": 1200}}
+        executor_llm = make_llm(dprov, dmodel, executor_agent["params"])
+        executor_llm = executor_llm.bind_tools(tool_list)
+        tool_map = {t.name: t for t in tool_list}
+
+        text = ""
+        for _round in range(MAX_TOOL_ROUNDS + 1):
+            text = self._tool_loop(agent, llm, {}, msgs)
+            request = _find_delegate_request(text)
+            if not request or _round == MAX_TOOL_ROUNDS:
+                return _DELEGATE_BLOCK_RE.sub("", text).strip()
+            self.emit("decision", agent=name,
+                      content=f"🤝 delegated to {dmodel}: {request[:140]}")
+            result = self._tool_loop(
+                executor_agent, executor_llm, tool_map,
+                [SystemMessage(content=(
+                    "You are a precise tool-execution assistant. Fulfill the "
+                    "request using your tools. Reply with only the factual "
+                    "result (values, file paths, retrieved content) — no "
+                    "commentary.")),
+                 HumanMessage(content=request)],
+                emit_tokens=False)
+            msgs.append(AIMessage(content=text))
+            msgs.append(HumanMessage(content=(
+                f"[Tool assistant result]\n{result}\n\nContinue. Use another "
+                "delegate block if you need more, otherwise give your final "
+                "answer.")))
+        return _DELEGATE_BLOCK_RE.sub("", text).strip()
+
+    def _tool_loop(self, agent: dict, llm, tool_map: dict, msgs: list,
+                   emit_tokens: bool = True) -> str:
         for _round in range(MAX_TOOL_ROUNDS + 1):
             self._check_cancel()
             full = None
             for chunk in llm.stream(msgs):
                 self._check_cancel()
                 full = chunk if full is None else full + chunk
-                if chunk.content:
+                if chunk.content and emit_tokens:
                     text = chunk.content if isinstance(chunk.content, str) else str(chunk.content)
                     self.emit("token", agent=agent["name"], content=text)
             if full is None:

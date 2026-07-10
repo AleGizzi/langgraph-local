@@ -179,6 +179,10 @@ def search(query: str, limit: int = 20) -> list:
         if not matched:
             continue
         score = len(matched) + sum(1 for t in terms if t in title_low)
+        # Curated notes out-rank auto-exported run outputs: otherwise agents
+        # keep surfacing their own past (possibly wrong) deliverables first.
+        if not note["path"].startswith("team-outputs/"):
+            score += 1
         # Snippet anchored on the first matched term (or the phrase).
         anchor = low.find(raw)
         if anchor < 0:
