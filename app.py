@@ -688,6 +688,25 @@ def run_artifacts(run_id):
     return jsonify(sorted(files, key=lambda f: f["path"]))
 
 
+@app.get("/api/runs/<int:run_id>/artifacts.zip")
+def run_artifacts_zip(run_id):
+    import io
+    import zipfile
+    ws = os.path.join(WORKSPACES, str(run_id))
+    if not os.path.isdir(ws):
+        abort(404)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for base, _dirs, names in os.walk(ws):
+            for n in names:
+                p = os.path.join(base, n)
+                zf.write(p, os.path.relpath(p, ws))
+    buf.seek(0)
+    return Response(buf.read(), mimetype="application/zip",
+                    headers={"Content-Disposition":
+                             f"attachment; filename=run-{run_id}.zip"})
+
+
 @app.get("/api/runs/<int:run_id>/artifacts/<path:relpath>")
 def run_artifact_file(run_id, relpath):
     ws = os.path.realpath(os.path.join(WORKSPACES, str(run_id)))

@@ -17,7 +17,7 @@ WORKSPACES = os.environ.get(
 
 # Event types that are persisted for history/replay. Tokens are live-only.
 PERSISTED = {"run_start", "agent_start", "agent_end", "tool_call", "tool_result",
-             "decision", "run_end", "error"}
+             "decision", "artifact", "run_end", "error"}
 
 _SENTINEL = object()
 

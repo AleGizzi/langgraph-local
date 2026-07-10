@@ -54,6 +54,8 @@ export function useRunStream(runId, onDone) {
           }
         } else if (e.type === "decision") {
           next.push({ kind: "decision", agent: e.agent, text: e.content });
+        } else if (e.type === "artifact") {
+          next.push({ kind: "artifact", agent: e.agent, text: e.content });
         } else if (e.type === "error") {
           next.push({ kind: "error", text: e.content });
         } else if (e.type === "run_end") {
@@ -106,6 +108,8 @@ export function itemsFromPersistedEvents(run) {
       if (lastStep) lastStep.tools.push({ type: e.type, text: e.content });
     } else if (e.type === "decision") {
       items.push({ kind: "decision", agent: e.agent, text: e.content });
+    } else if (e.type === "artifact") {
+      items.push({ kind: "artifact", agent: e.agent, text: e.content });
     } else if (e.type === "error") {
       items.push({ kind: "error", text: e.content });
     }
@@ -172,7 +176,12 @@ function Artifacts({ runId }) {
   if (!files.length) return null;
   return (
     <div className="card">
-      <div className="step-head"><span className="name">📎 Workspace artifacts</span></div>
+      <div className="step-head">
+        <span className="name">📎 Workspace artifacts</span>
+        <span className="spacer" />
+        <a className="btn sm" href={`/api/runs/${runId}/artifacts.zip`}
+          download={`run-${runId}.zip`}>⬇ Download all (.zip)</a>
+      </div>
       <div className="artifact-list">
         {files.map((f) => (
           <a key={f.path} href={`/api/runs/${runId}/artifacts/${f.path}`} target="_blank" rel="noopener noreferrer">
@@ -202,6 +211,14 @@ export default function Timeline({ items, runId, autoScroll = false }) {
           return (
             <div key={i} className="decision-line">
               {it.kind === "banner" ? it.text : `🧭 ${it.agent ? it.agent + ": " : ""}${it.text}`}
+            </div>
+          );
+        }
+        if (it.kind === "artifact") {
+          return (
+            <div key={i} className="decision-line" style={{ borderStyle: "solid" }}>
+              📦 {it.agent ? it.agent + " wrote " : ""}
+              <code style={{ fontFamily: "var(--mono)" }}>{it.text}</code>
             </div>
           );
         }

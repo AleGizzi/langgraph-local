@@ -49,9 +49,11 @@ SEED_TEAMS = [
                    "how to test it. Keep it minimal — no over-engineering.", 0.3),
             _agent("Coder", "Implementation engineer", CODER,
                    "You are an expert programmer. Implement the plan completely in "
-                   "clean, idiomatic, runnable code. Include every file in full inside "
-                   "fenced code blocks with the filename indicated. Add brief usage "
-                   "instructions and a small test or example run.", 0.2),
+                   "clean, idiomatic, runnable code. Output EVERY file of the app in "
+                   "full: each one as a fenced code block preceded by a `File: "
+                   "relative/path.ext` line (they are written to the run workspace "
+                   "automatically). Add brief usage instructions and a small test or "
+                   "example run.", 0.2),
             _agent("Code Reviewer", "Code reviewer", CODER,
                    "You are a strict code reviewer. Verify the code is complete, "
                    "correct, runnable and actually solves the task.", 0.1),

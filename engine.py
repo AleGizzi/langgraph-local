@@ -16,6 +16,7 @@ and always falls back to something sane instead of crashing the run.
 """
 import json
 import operator
+import os
 import re
 import threading
 import time
@@ -50,6 +51,69 @@ class TeamState(TypedDict, total=False):
 def _strip_reasoning(text: str) -> str:
     """Remove <think>...</think> blocks emitted by reasoning models (DeepSeek-R1)."""
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
+
+
+# Matches a fenced code block, capturing the info string and the body.
+_FENCE_RE = re.compile(r"```([^\n]*)\n(.*?)```", re.DOTALL)
+# A relative file path with a real extension (must contain a letter, so
+# version strings like "1.2.3" don't match). No spaces, no traversal.
+_PATH_RE = re.compile(r"^[\w./-]+\.[A-Za-z][A-Za-z0-9]{0,11}$")
+# Header line right before a fence naming the file: "File: x", "**x**", "### x".
+_HEADER_RE = re.compile(
+    r"(?:^|\n)[ \t]*(?:\*\*|####?\s*|//\s*|#\s*)?"
+    r"(?:File|file|FILE|Filename|filename|Path|path)?[:\s]*"
+    r"`?([\w./-]+\.[A-Za-z][A-Za-z0-9]{0,11})`?\**[ \t]*$")
+
+
+def _safe_workspace_path(workspace: str, rel: str) -> str:
+    full = os.path.realpath(os.path.join(workspace, rel.lstrip("/")))
+    root = os.path.realpath(workspace)
+    if full != root and not full.startswith(root + os.sep):
+        raise ValueError("path escapes workspace")
+    return full
+
+
+def extract_files(content: str, workspace: str) -> list:
+    """Save fenced code blocks that name a file into the run workspace.
+
+    Local models can't be trusted to call write_file for every file, so the
+    engine extracts deliverables from the text itself. A block names its file
+    either in the fence info string (```python app.py) or in a header line just
+    above the fence (File: app.py / **app.py** / ### app.py). Returns the
+    relative paths written.
+    """
+    written = []
+    for m in _FENCE_RE.finditer(content or ""):
+        info, body = m.group(1).strip(), m.group(2)
+        path = None
+        # fence info: last token that looks like a path wins (skip bare lang)
+        for tok in reversed(info.split()):
+            tok = tok.strip("`")
+            if _PATH_RE.fullmatch(tok) and ("." in tok):
+                # a bare language like "py" has no dot; tok always has one here
+                path = tok
+                break
+        if not path:
+            # look at the last non-empty line above the fence
+            head = content[:m.start()].rstrip("\n")
+            last_line = head.rsplit("\n", 1)[-1] if head else ""
+            hm = _HEADER_RE.search("\n" + last_line)
+            if hm:
+                path = hm.group(1)
+        if not path:
+            continue
+        try:
+            full = _safe_workspace_path(workspace, path)
+        except ValueError:
+            continue
+        try:
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(body if body.endswith("\n") else body + "\n")
+            written.append(os.path.relpath(full, workspace))
+        except OSError:
+            continue
+    return written
 
 
 def _history_block(history: list) -> str:
@@ -235,6 +299,11 @@ class TeamRunner:
             "\n\nRules: Do the work directly and completely. Never ask the user "
             "questions. Produce clean, final, well-formatted Markdown output. "
             "Do not include meta commentary about being an AI."
+            "\nWhen your deliverable includes files (code, configs, docs), output "
+            "EACH complete file as a fenced code block immediately preceded by a "
+            "line of the form `File: relative/path.ext` — those files are saved "
+            "to the run workspace automatically, so never abbreviate their "
+            "contents or use placeholders."
         )
         return base + rules
 
@@ -264,6 +333,9 @@ class TeamRunner:
                 HumanMessage(content=user),
             ])
             self.emit("agent_end", agent=name, content=content)
+            # Materialize any files the agent declared (File: path + fence).
+            for rel in extract_files(content, self.workspace):
+                self.emit("artifact", agent=name, content=rel)
             return {"history": [{"agent": name, "content": content, "ts": time.time()}]}
 
         return node
