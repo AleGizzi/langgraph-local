@@ -3,6 +3,7 @@ import { api, toast } from "../lib/api.js";
 import { useApp } from "../App.jsx";
 import AgentFields from "./AgentFields.jsx";
 import GraphEditor from "./GraphEditor.jsx";
+import WizardPanel from "./WizardPanel.jsx";
 
 let keyCounter = 0;
 const withKey = (a) => ({ ...a, _key: a._key ?? `k${++keyCounter}` });
@@ -23,7 +24,7 @@ function defaultGraphFor(agents) {
   return { nodes, edges, positions };
 }
 
-export default function TeamEditor({ team, onClose, onSaved }) {
+export default function TeamEditor({ team, wizard, onClose, onSaved }) {
   const isNew = !team;
   const { models } = useApp();
   const [personas, setPersonas] = useState([]);
@@ -141,6 +142,20 @@ export default function TeamEditor({ team, onClose, onSaved }) {
     graph: topology === "graph" ? (d.graph || defaultGraphFor(d.agents)) : d.graph,
   }));
 
+  // Load an AI-wizard team draft into the editor for review.
+  const applyDraft = (draft) => {
+    setData((d) => ({
+      ...d,
+      name: draft.name || d.name,
+      icon: draft.icon || d.icon,
+      description: draft.description ?? d.description,
+      topology: draft.topology || "pipeline",
+      settings: { ...d.settings, ...(draft.settings || {}) },
+      agents: (draft.agents || []).map(withKey),
+      graph: draft.topology === "graph" ? (draft.graph || null) : null,
+    }));
+  };
+
   const save = async () => {
     const body = { ...data, agents: data.agents.map(({ _key, ...a }) => a) };
     if (body.topology !== "graph") delete body.graph;
@@ -166,10 +181,17 @@ export default function TeamEditor({ team, onClose, onSaved }) {
     <div className="modal-back" onClick={(e) => e.target.classList.contains("modal-back") && onClose()}>
       <div className="modal" style={{ maxWidth: data.topology === "graph" ? 980 : 760 }}>
         <div className="modal-head">
-          <h2>{isNew ? "New team" : `Edit ${data.name}`}</h2>
+          <h2>{isNew ? (wizard ? "New team — AI wizard" : "New team") : `Edit ${data.name}`}</h2>
           <button className="btn ghost" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
+          {wizard && (
+            <WizardPanel kind="team"
+              buildPayload={() => ({
+                current: { ...data, agents: data.agents.map(({ _key, ...a }) => a) },
+              })}
+              onDraft={applyDraft} />
+          )}
           <div className="row">
             <div className="field narrow">
               <label>Icon</label>

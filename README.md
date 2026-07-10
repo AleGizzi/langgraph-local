@@ -13,6 +13,9 @@ powered by **Ollama** and/or **LM Studio**. No cloud, no API keys, no telemetry.
 - **Teams**: compose multi-agent teams in the browser — each agent gets a name, role,
   local model, system prompt, tools and full generation hyperparameters
   (temperature, top-p, top-k, context window, max tokens, repeat penalty, seed).
+  Or just **describe the team in plain language** ("a PMO orchestrator, a devops
+  team and a QA team") and the **AI wizard drafts the whole thing** — agents,
+  prompts, models and topology — for you to review, refine and save.
 - **Personas**: a library of reusable agent definitions with tuned default prompts
   (Researcher, Writer, Coder, Reviewer, Critic, …). Apply one to any agent with one
   click, or save your own agents back into the library.

@@ -89,6 +89,171 @@ def draft_skill(provider: str, model: str, request: str,
     }
 
 
+TEAM_SYSTEM = """You design multi-agent TEAMS for a local LLM orchestration app.
+A team is a JSON object:
+
+{"name": "<2-4 words>", "icon": "<one emoji>", "description": "<one line>",
+ "topology": "single" | "pipeline" | "supervisor" | "graph",
+ "settings": {"quality_loop": bool, "max_revisions": 2, "max_steps": 8,
+              "parallel": bool},
+ "agents": [{"name": "<unique short name>", "role": "<job title>",
+             "provider": "<from available models>", "model": "<from available models>",
+             "system_prompt": "<2-4 specific sentences defining who this agent is,
+                               what it produces and its standards — no placeholders>",
+             "params": {"temperature": <0.0-1.0>},
+             "tools": [<only from the available tools list, only if truly useful>],
+             "skills": [<only from the available skills list, only if truly useful>]}],
+ "graph": <ONLY when topology is "graph">
+          {"nodes": [{"id": "n1", "agent": "<agent name>"}, ...],
+           "edges": [{"source": "start"|"<id>", "target": "<id>"|"end"}, ...]}}
+
+Topology guide — pick what matches the user's description:
+- "supervisor": the FIRST agent is an orchestrator/coordinator/manager/PMO that
+  delegates work to the other agents dynamically and synthesizes the result.
+  Use whenever the user describes an orchestrator, manager, lead or PMO.
+- "pipeline": agents work in a fixed sequence, each building on the previous.
+  Set quality_loop=true and put a reviewer LAST when review/QA of the final
+  output is wanted at the end of a sequence.
+- "graph": independent groups work in parallel branches that merge (set
+  settings.parallel=true). Edges flow start → branches → merge agent → end.
+- "single": one agent only.
+
+Hard rules:
+- 3 to 6 agents ideal; NEVER more than 8 (each agent is a slow local-model call).
+  If the user asks for "a team of X", represent it as 1-2 strong X agents, not many.
+- Every agent name unique. Every model/tool/skill ONLY from the provided lists;
+  give coding agents a coder model when one is available.
+- Low temperature (0.1-0.3) for reviewers/orchestrators, higher (0.6-0.8) for
+  creative writers.
+Respond ONLY with the JSON object, no other text."""
+
+
+def _grid_positions(node_ids: list) -> dict:
+    pos = {"start": {"x": 20, "y": 220},
+           "end": {"x": 320 + max(1, len(node_ids)) * 240, "y": 220}}
+    for i, nid in enumerate(node_ids):
+        pos[nid] = {"x": 240 + (i % 3) * 240, "y": 90 + (i // 3) * 170}
+    return pos
+
+
+def _normalize_team(data: dict, models: dict, tools: list, skills: list) -> dict:
+    """Repair a model-drafted team into something the API will accept.
+
+    Local models get schemas mostly-right; this fixes the common failures
+    (bad model names, duplicate agents, invalid topology/graph) instead of
+    rejecting the draft.
+    """
+    def pick_model(coder: bool):
+        for prov in ("ollama", "lmstudio"):
+            lst = models.get(prov) or []
+            if coder:
+                m = next((x for x in lst if re.search(r"coder", x, re.I)
+                          and not re.search(r"r1|think", x, re.I)), None)
+                if m:
+                    return prov, m
+            m = next((x for x in lst if re.search(r"^(qwen|llama|mistral|gemma)", x, re.I)
+                      and not re.search(r"r1|coder|think", x, re.I)), None)
+            if m:
+                return prov, m
+            if lst:
+                return prov, lst[0]
+        return "ollama", ""
+
+    valid_models = {(p, m) for p in ("ollama", "lmstudio") for m in (models.get(p) or [])}
+    agents, seen = [], set()
+    for a in (data.get("agents") or [])[:8]:
+        if not isinstance(a, dict):
+            continue
+        name = str(a.get("name") or "Agent").strip()[:40] or "Agent"
+        base, i = name, 2
+        while name.lower() in seen:
+            name = f"{base} {i}"
+            i += 1
+        seen.add(name.lower())
+        prov = a.get("provider", "ollama")
+        mdl = str(a.get("model") or "")
+        if (prov, mdl) not in valid_models:
+            coderish = bool(re.search(r"code|coder|dev|engineer|program",
+                                      f"{name} {a.get('role','')}", re.I))
+            prov, mdl = pick_model(coderish)
+        params = a.get("params") if isinstance(a.get("params"), dict) else {}
+        agents.append({
+            "name": name, "role": str(a.get("role", ""))[:80],
+            "provider": prov, "model": mdl,
+            "system_prompt": str(a.get("system_prompt", "")).strip(),
+            "params": params,
+            "tools": [t for t in (a.get("tools") or []) if t in tools],
+            "skills": [s for s in (a.get("skills") or []) if s in skills],
+        })
+    if not agents:
+        prov, mdl = pick_model(False)
+        agents = [{"name": "Agent", "role": "", "provider": prov, "model": mdl,
+                   "system_prompt": "", "params": {}, "tools": [], "skills": []}]
+
+    topology = data.get("topology")
+    if topology not in ("single", "pipeline", "supervisor", "graph"):
+        topology = "pipeline" if len(agents) > 1 else "single"
+    if topology == "supervisor" and len(agents) < 2:
+        topology = "single"
+    if len(agents) == 1:
+        topology = "single"
+
+    settings_in = data.get("settings") if isinstance(data.get("settings"), dict) else {}
+    settings = {"quality_loop": bool(settings_in.get("quality_loop")),
+                "max_revisions": 2, "max_steps": 8,
+                "parallel": bool(settings_in.get("parallel"))}
+
+    out = {"name": str(data.get("name") or "New Team")[:60],
+           "icon": str(data.get("icon") or "🤖")[:8],
+           "description": str(data.get("description", ""))[:300],
+           "topology": topology, "settings": settings, "agents": agents}
+
+    if topology == "graph":
+        g = data.get("graph") if isinstance(data.get("graph"), dict) else {}
+        agent_names = {a["name"] for a in agents}
+        nodes = [{"id": str(n.get("id") or f"n{i+1}"), "agent": n.get("agent")}
+                 for i, n in enumerate(g.get("nodes") or [])
+                 if isinstance(n, dict) and n.get("agent") in agent_names]
+        ids = {n["id"] for n in nodes}
+        edges = [{"source": str(e.get("source")), "target": str(e.get("target"))}
+                 for e in (g.get("edges") or []) if isinstance(e, dict)
+                 and str(e.get("source")) in ids | {"start"}
+                 and str(e.get("target")) in ids | {"end"}]
+        has_start = any(e["source"] == "start" for e in edges)
+        has_end = any(e["target"] == "end" for e in edges)
+        if not nodes or not has_start or not has_end:
+            # Graph too broken to trust — degrade to a plain pipeline.
+            out["topology"] = "pipeline"
+        else:
+            out["graph"] = {"nodes": nodes, "edges": edges,
+                            "positions": _grid_positions([n["id"] for n in nodes])}
+    return out
+
+
+def draft_team(provider: str, model: str, request: str, models: dict,
+               tools: list, skills: list, current: dict = None,
+               feedback: str = None) -> dict:
+    """Draft a full team definition from a natural-language description."""
+    ctx = (f"AVAILABLE MODELS (provider: models): "
+           f"{json.dumps({p: models.get(p) or [] for p in ('ollama', 'lmstudio')})}\n"
+           f"AVAILABLE TOOLS: {json.dumps(tools)}\n"
+           f"AVAILABLE SKILLS: {json.dumps(skills)}")
+    user = f"{ctx}\n\nDesign a team for this description:\n{request}"
+    if current and feedback:
+        user = (f"{ctx}\n\nOriginal description:\n{request}\n\nCurrent draft:\n"
+                f"{json.dumps(current, ensure_ascii=False)}\n\n"
+                f"Revise it according to this feedback:\n{feedback}\n"
+                "Return the full revised JSON.")
+    llm = providers.make_llm(provider, model,
+                             {"temperature": 0.4, "num_predict": 3500})
+    text = _text_of(llm.invoke([SystemMessage(content=TEAM_SYSTEM),
+                                HumanMessage(content=user)]))
+    data = _extract_json(text)
+    if not isinstance(data, dict):
+        data = {"name": request[:40], "description": request[:200], "agents": []}
+    return _normalize_team(data, models, tools, skills)
+
+
 def draft_tool(provider: str, model: str, request: str,
                current_code: str = None, feedback: str = None) -> dict:
     user = f"Write a tool for this need:\n{request}"

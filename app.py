@@ -394,8 +394,8 @@ def wizard_generate():
     body = request.get_json(force=True) or {}
     kind = body.get("kind")
     req = (body.get("request") or "").strip()
-    if kind not in ("skill", "tool"):
-        abort(400, "kind must be 'skill' or 'tool'")
+    if kind not in ("skill", "tool", "team"):
+        abort(400, "kind must be 'skill', 'tool' or 'team'")
     if not req:
         abort(400, "describe what you need")
     provider = body.get("provider") if body.get("provider") in ("ollama", "lmstudio") else "ollama"
@@ -407,6 +407,13 @@ def wizard_generate():
             draft = wizard.draft_skill(provider, model, req,
                                        current=body.get("current"),
                                        feedback=body.get("feedback"))
+        elif kind == "team":
+            draft = wizard.draft_team(
+                provider, model, req,
+                models=providers.list_models(),
+                tools=sorted(tools_mod.valid_tool_names()),
+                skills=[s["name"] for s in storage.list_skills()],
+                current=body.get("current"), feedback=body.get("feedback"))
         else:
             draft = wizard.draft_tool(provider, model, req,
                                       current_code=body.get("current_code"),

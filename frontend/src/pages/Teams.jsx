@@ -5,6 +5,7 @@ import TeamEditor from "../components/TeamEditor.jsx";
 export default function Teams() {
   const [teams, setTeams] = useState(null);
   const [editing, setEditing] = useState(undefined); // undefined=closed, null=new, obj=edit
+  const [wizMode, setWizMode] = useState(false);
 
   const load = () => api("/teams").then(setTeams).catch((e) => toast(e.message, true));
   useEffect(() => { load(); }, []);
@@ -32,7 +33,10 @@ export default function Teams() {
           <h1 className="page-title">Studio</h1>
           <p className="page-sub">Agent teams that run on your local models</p>
         </div>
-        <button className="btn primary" onClick={() => setEditing(null)}>＋ New Team</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" onClick={() => { setWizMode(true); setEditing(null); }}>🪄 Describe a team</button>
+          <button className="btn primary" onClick={() => { setWizMode(false); setEditing(null); }}>＋ New Team</button>
+        </div>
       </div>
       <div className="grid">
         {(teams || []).map((t) => (
@@ -57,13 +61,17 @@ export default function Teams() {
             </div>
           </div>
         ))}
-        <div className="new-card" onClick={() => setEditing(null)}>
+        <div className="new-card" onClick={() => { setWizMode(false); setEditing(null); }}>
           <div className="plus">＋</div>Create a team
+        </div>
+        <div className="new-card" onClick={() => { setWizMode(true); setEditing(null); }}>
+          <div className="plus">🪄</div>Describe it — AI builds the team
         </div>
       </div>
       {editing !== undefined && (
         <TeamEditor
           team={editing}
+          wizard={wizMode}
           onClose={() => setEditing(undefined)}
           onSaved={(saved) => { setEditing(undefined); location.hash = `#/team/${saved.id}`; }}
         />

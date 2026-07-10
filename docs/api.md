@@ -415,31 +415,34 @@ AI-assisted code generation for custom skills and tools. Uses a local LLM to dra
 
 ### POST /api/wizard
 
-Generate a draft skill or tool.
+Generate a draft skill, tool, or entire team from a natural-language description.
 
 **Request body:**
 ```json
 {
-  "kind": "skill|tool",
-  "request": "string (user description, e.g. 'a tool to count words')",
+  "kind": "skill|tool|team",
+  "request": "string (user description, e.g. 'a PMO orchestrator with devops and qa teams')",
   "provider": "ollama|lmstudio (default: ollama)",
   "model": "string (required, e.g. 'qwen2.5:7b')",
-  "current": "string|null (existing skill instructions, for refinement)",
+  "current": "object|null (existing skill/team draft, for refinement)",
   "current_code": "string|null (existing tool code, for refinement)",
   "feedback": "string|null (user feedback on a draft)"
 }
 ```
 
-**Response:**
-```json
-{
-  "kind": "skill|tool",
-  "draft": "string (generated instructions or Python code)"
-}
-```
+**Response:** `{"kind": ..., "draft": ...}` where `draft` is:
+- `skill` → `{name, icon, description, instructions}`
+- `tool` → `{code, tools, error, filename_suggestion}` (code is load-validated
+  with one auto-fix round)
+- `team` → a full team object `{name, icon, description, topology, settings,
+  agents[], graph?}` — normalized server-side (models/tools/skills validated
+  against what exists, unique agent names, topology repaired, graph gets
+  auto-positions or degrades to pipeline if broken). Load it into the team
+  editor for review; saving goes through the normal `POST /api/teams`
+  validation.
 
 **Errors:**
-- 400 if `kind` not in `["skill", "tool"]` or no `request` / `model`
+- 400 if `kind` not in `["skill", "tool", "team"]` or no `request` / `model`
 - 502 if LLM generation fails
 
 ---
