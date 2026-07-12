@@ -258,13 +258,44 @@ def imagegen_generate():
     return jsonify(imagegen.generate(
         prompt, negative=body.get("negative", ""),
         steps=body.get("steps"), aspect=body.get("aspect") or "1152*896",
-        performance=body.get("performance")))
+        performance=body.get("performance"), loras=body.get("loras")))
 
 
 @app.get("/api/imagegen/gallery")
 def imagegen_gallery():
     import imagegen
-    return jsonify({"images": imagegen.list_images()})
+    names = imagegen.list_images()
+    return jsonify({"images": names,
+                    "meta": {n: imagegen.image_meta(n) for n in names}})
+
+
+# ---------------- LoRAs (Fooocus/SDXL style LoRAs from Civitai) ----------------
+
+@app.get("/api/loras")
+def loras_index():
+    import loras
+    return jsonify({"local": loras.list_local(), "downloads": loras.download_status()})
+
+
+@app.get("/api/loras/search")
+def loras_search():
+    import loras
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        abort(400, "q is required")
+    base = request.args.get("base") or "SDXL"
+    return jsonify(loras.search(q, base_model=base))
+
+
+@app.post("/api/loras/download")
+def loras_download():
+    import loras
+    body = request.get_json(force=True) or {}
+    url = (body.get("download_url") or "").strip()
+    name = (body.get("file_name") or "").strip()
+    if not url or not name:
+        abort(400, "download_url and file_name are required")
+    return jsonify(loras.download(url, name))
 
 
 @app.get("/api/imagegen/images/<path:filename>")
@@ -399,8 +430,8 @@ def wizard_generate():
     body = request.get_json(force=True) or {}
     kind = body.get("kind")
     req = (body.get("request") or "").strip()
-    if kind not in ("skill", "tool", "team"):
-        abort(400, "kind must be 'skill', 'tool' or 'team'")
+    if kind not in ("skill", "tool", "team", "persona"):
+        abort(400, "kind must be 'skill', 'tool', 'team' or 'persona'")
     if not req:
         abort(400, "describe what you need")
     provider = body.get("provider") if body.get("provider") in ("ollama", "lmstudio") else "ollama"
@@ -414,6 +445,13 @@ def wizard_generate():
                                        feedback=body.get("feedback"))
         elif kind == "team":
             draft = wizard.draft_team(
+                provider, model, req,
+                models=providers.list_models(),
+                tools=sorted(tools_mod.valid_tool_names()),
+                skills=[s["name"] for s in storage.list_skills()],
+                current=body.get("current"), feedback=body.get("feedback"))
+        elif kind == "persona":
+            draft = wizard.draft_persona(
                 provider, model, req,
                 models=providers.list_models(),
                 tools=sorted(tools_mod.valid_tool_names()),
@@ -610,6 +648,59 @@ def personas_update(pid):
 def personas_delete(pid):
     storage.delete_persona(pid)
     return jsonify({"ok": True})
+
+
+@app.post("/api/personas/<int:pid>/sprite")
+def personas_sprite(pid):
+    """Generate the persona's creature sprite (SLOW: minutes on a weak GPU).
+
+    Species/evolution come deterministically from the persona's model family
+    and size (sprites.py); an optional 'flavor' adds accessories. Uses a local
+    GBA/pokemon LoRA automatically when one is installed.
+    """
+    import imagegen
+    import sprites
+    persona = storage.get_persona(pid)
+    if not persona:
+        abort(404)
+    if not persona.get("model"):
+        abort(400, "persona has no model to derive a species from")
+    body = request.get_json(force=True) or {}
+    catalog_params = None
+    try:
+        import catalog as catalog_mod
+        base = persona["model"].split(":")[0].lower()
+        for m in (catalog_mod.load_cache() or {}).get("models", []):
+            if m.get("name") == persona["model"] and m.get("params_b"):
+                catalog_params = m["params_b"]
+                break
+    except Exception:  # noqa: BLE001
+        pass
+    spec = sprites.build_sprite_prompt(
+        persona["model"], persona.get("role", ""), persona.get("tools"),
+        catalog_params=catalog_params,
+        flavor=body.get("flavor") or "")
+    gen_loras = None
+    try:
+        import loras
+        match = next((f["file_name"] for f in loras.list_local()
+                      if re.search(r"pokemon|gba|sprite|pixel", f["file_name"], re.I)),
+                     None)
+        if match:
+            gen_loras = [{"file_name": match, "weight": 0.8}]
+    except Exception:  # noqa: BLE001 - lora subsystem optional
+        pass
+    result = imagegen.generate(spec["prompt"], negative=spec["negative"],
+                               aspect="1024*1024",
+                               performance=body.get("performance"),
+                               loras=gen_loras, styles=[])
+    if not result.get("ok") or not result.get("images"):
+        abort(502, f"sprite generation failed: {result.get('error')}")
+    meta = {"species": spec["species"], "family": spec["family"],
+            "stage": spec["stage"], "params_b": spec["params_b"],
+            "prompt": spec["prompt"],
+            "lora": gen_loras[0]["file_name"] if gen_loras else None}
+    return jsonify(storage.set_persona_sprite(pid, result["images"][0], meta))
 
 
 # ---------------- teams ----------------

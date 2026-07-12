@@ -4,11 +4,31 @@ Both run locally. Discovery is fault tolerant: a provider that is down simply
 returns no models instead of breaking the app.
 """
 import os
+import time
 
 import requests
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 LMSTUDIO_URL = os.environ.get("LMSTUDIO_URL", "http://localhost:1234/v1")
+FOOOCUS_URL = os.environ.get("FOOOCUS_URL", "http://localhost:8888")
+
+# GPU coexistence guard: while the Fooocus image server is running it owns
+# most of the GPU; letting Ollama offload then crashes its runner ("llama
+# runner process has terminated"). When Fooocus is up we force Ollama to
+# CPU-only inference — slower, but it works instead of crashing.
+_gpu_guard = {"ts": 0.0, "up": False}
+
+
+def image_server_running() -> bool:
+    now = time.time()
+    if now - _gpu_guard["ts"] > 10:
+        try:
+            requests.get(f"{FOOOCUS_URL}/ping", timeout=0.7)
+            _gpu_guard["up"] = True
+        except requests.RequestException:
+            _gpu_guard["up"] = False
+        _gpu_guard["ts"] = now
+    return _gpu_guard["up"]
 
 # Models that only produce embeddings; they can't chat so hide them.
 _EMBED_HINTS = ("embed", "embedding", "bge-", "nomic-embed")
@@ -116,6 +136,8 @@ def make_llm(provider: str, model: str, params: dict = None):
             num_ctx=p.get("num_ctx", 8192),
             num_predict=p.get("num_predict", 2048),
             seed=p.get("seed"),
+            # CPU-only while the image server owns the GPU (see guard above).
+            num_gpu=0 if image_server_running() else None,
             client_kwargs={"timeout": idle},
         )
     if provider == "lmstudio":

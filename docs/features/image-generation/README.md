@@ -16,9 +16,10 @@ Models page has an install/run/generate UI.
 | Path | Role |
 |------|------|
 | `imagegen.py` | Install (git clone + venv + pip), start/stop (subprocess), `generate()` (POST + poll), gallery listing. All Fooocus-API HTTP contract details are documented in this file's module docstring. |
-| `app.py` | `/api/imagegen/*` routes. |
+| `loras.py` | Search Civitai for SDXL-family LoRAs and download them into Fooocus's `loras` folder. Both the Civitai search API and the Fooocus-API `loras` request-field contract are documented in this file's module docstring. |
+| `app.py` | `/api/imagegen/*` and `/api/loras*` routes. |
 | `tools.py` (`generate_image`) | The agent-facing tool — thin wrapper calling `imagegen.generate(prompt, negative)`. |
-| `frontend/src/components/ImageGen.jsx` | Install/start/stop/generate UI + gallery, embedded in the Models page. |
+| `frontend/src/components/ImageGen.jsx` | Install/start/stop/generate UI + gallery + collapsible "🎨 Style LoRAs" search/download/select panel, embedded in the Models page. |
 
 `catalog.image_models()` / `frontend/.../ImageModels.jsx` (curated VRAM
 assessment of SD 1.5/SDXL/FLUX etc.) are a **separate, informational-only**
@@ -45,12 +46,40 @@ runtime (Fooocus).
   (best-effort — see Gotchas).
 - `POST /api/imagegen/generate`
   `{prompt (required), negative?, steps?, aspect? (default "1152*896"),
-  performance? (default "Extreme Speed")}` → `imagegen.generate()`:
-  `{ok, images: ["filename.png", ...], error}`.
+  performance? (default "Extreme Speed"), loras? ([{file_name, weight}])}` →
+  `imagegen.generate()`: `{ok, images: ["filename.png", ...], error}`. Each
+  `loras` entry becomes a Fooocus-API `{"enabled": true, "model_name":
+  file_name, "weight": weight}` entry (weight clamped to `[0, 2]`); malformed
+  entries are silently skipped rather than raising.
 - `GET /api/imagegen/gallery` → `{images: [filenames, newest first]}`.
 - `GET /api/imagegen/images/<filename>` → the raw image file
   (path-traversal safe: filename is `os.path.basename`'d and resolved
   against `IMAGES_DIR`).
+
+### LoRAs (`loras.py`)
+
+- `GET /api/loras` → `{local: loras.list_local(), downloads:
+  loras.download_status()}`. `local`: `[{file_name, size_mb}, ...]` currently
+  sitting in `LORAS_DIR`. `downloads`: in-memory status dict keyed by
+  `file_name` (installer.py-style: `status, progress, error, done,
+  started_at`).
+- `GET /api/loras/search?q=<query>&base=SDXL` → `loras.search(q, base)`:
+  `{ok, results: [{id, name, version_name, base_model, file_name, size_kb,
+  download_url, downloads, description (≤200 chars, HTML stripped),
+  compatible}], error}`, sorted compatible-first then by `downloads` desc.
+  Backed live by `GET https://civitai.com/api/v1/models?query=...&types=LORA&limit=30`
+  (no auth needed for search) — one result row per `modelVersion` (a single
+  Civitai model can list both an SDXL and an SD 1.5 version, each with a
+  different `baseModel`/`compatible` value). `compatible` is `true` iff the
+  version's `baseModel` contains `"SDXL"` or `"Pony"` (Pony is an
+  SDXL-architecture finetune) — everything else (`SD 1.5`, `Flux.1 D`, ...)
+  is marked incompatible but still returned, not hidden, per the "surface
+  compatibility clearly" requirement.
+- `POST /api/loras/download {download_url, file_name}` → `loras.download()`:
+  `{ok, error}`. Starts a background download into `LORAS_DIR`; poll via
+  `GET /api/loras`. `file_name` is sanitized (`os.path.basename`, must end
+  `.safetensors`/`.pt`/`.ckpt`) before being used as both the download key
+  and the on-disk filename.
 
 ### The `generate_image` agent tool
 
@@ -100,6 +129,21 @@ negative=negative)` with **default** aspect ratio and performance mode (no
   (measured ~86s/step on the reference 4 GB card → ~40 min for the 30-step
   `Speed` mode). An explicit `steps` argument overrides the preset via
   `advanced_params.overwrite_step`.
+- **LoRAs** (`loras.py`): `search()` hits Civitai's public REST API directly
+  (no API key needed to search) and classifies each `modelVersion` as
+  SDXL-compatible or not client-side, because Civitai's own `baseModels`
+  filter only matches exact enum strings and would hide compatible-but-
+  differently-labelled results (or require one request per variant) instead
+  of surfacing the mismatch. `download()` streams the file into `LORAS_DIR`
+  (installer.py-style background thread + polled status dict keyed by
+  `file_name`); if the creator gated the file behind a login (Civitai
+  returns `401`), it stops immediately with an error naming `CIVITAI_API_KEY`
+  and the manual-download fallback path, rather than retrying or hanging.
+  `LORAS_DIR` resolves to `FOOOCUS_LORAS_DIR` if set, else
+  `<FOOOCUS_DIR>/repositories/Fooocus/models/loras` — the directory Fooocus
+  itself scans for `model_name` values, and where its two bundled example
+  LoRAs (`sd_xl_offset_example-lora_1.0.safetensors`,
+  `sdxl_lcm_lora.safetensors`) already live after a normal install.
 
 ## Gotchas
 
@@ -133,6 +177,36 @@ negative=negative)` with **default** aspect ratio and performance mode (no
 - `generate()` always sets `async_process: true`; the synchronous-reply
   handling branch is a defensive fallback for an API behavior change, not
   something to rely on as the primary path.
+- **Only SDXL-family LoRAs (`baseModel` containing "SDXL" or "Pony") work on
+  this app's JuggernautXL/SDXL Fooocus base.** SD 1.5 LoRAs (and Flux, etc.)
+  load into `loras.model_name` without any error from Fooocus-API — they
+  just silently have zero visible effect on the generated image, since the
+  tensor shapes don't match the SDXL U-Net. `loras.search()`'s `compatible`
+  flag exists specifically to surface this before a download is wasted; the
+  UI shows a red "incompatible (SD1.5)"-style badge rather than hiding those
+  results outright.
+- **Civitai downloads increasingly require a login.** Verified live (July
+  2026): most LoRA files 401 anonymously with `{"error":"Unauthorized",
+  "message":"The creator of this asset requires you to be logged in to
+  download it"}`; a minority (e.g. ones without a licensing gate) still
+  redirect straight to a signed `b2.civitai.com` URL with no auth. Set the
+  `CIVITAI_API_KEY` env var (a key from the user's Civitai account settings)
+  to send `Authorization: Bearer <key>` on every download and unlock the
+  gated ones; without it, `download()` fails fast with a clear error instead
+  of hanging or silently writing a 0-byte/HTML file.
+- **Downloaded LoRA files land in `LORAS_DIR`**
+  (`FOOOCUS_LORAS_DIR` env override, else `<FOOOCUS_DIR>/repositories/
+  Fooocus/models/loras`) — this only exists once Fooocus-API has been
+  installed (the `repositories/Fooocus` vendor checkout is created by
+  Fooocus itself on first launch, not by `install_backend()`), so
+  `download()`/`list_local()` create the directory on demand if it's
+  missing rather than assuming it's there.
+- **LoRA download progress is in-memory only** (`loras._downloads`, mirrors
+  the `imagegen`/`installer` pattern) — a server restart mid-download loses
+  progress tracking; the partially-written file is left as `<name>.part` and
+  is not picked up by `list_local()` (which only lists the recognized LoRA
+  extensions), so a restart-interrupted download needs to be retried from
+  the UI.
 
 ## How to verify
 
@@ -149,3 +223,17 @@ negative=negative)` with **default** aspect ratio and performance mode (no
 6. Enable `generate_image` on a team agent, run a task asking for an image,
    and confirm a `tool_call`/`tool_result` pair appears in the run timeline
    with a `/api/imagegen/images/...` path in the result text.
+7. `GET /api/loras/search?q=pokemon+sprite&base=SDXL` and confirm real
+   Civitai results come back with a mix of `compatible: true/false` values
+   (SD 1.5 results should be marked `false`, SDXL/Pony `true`).
+8. `POST /api/loras/download {"download_url": "<a result's download_url>",
+   "file_name": "<its file_name>"}`, poll `GET /api/loras` until that
+   `file_name`'s entry in `downloads` has `done: true` (and `error: null`),
+   then confirm it now also appears in `local`. If it 401s instead, that
+   file needs a Civitai login — try a different result or set
+   `CIVITAI_API_KEY`.
+9. In the UI: open the "🎨 Style LoRAs" panel under a running Fooocus
+   server, search, download a compatible result, watch the progress bar
+   reach 100%, check it in the "Installed LoRAs" list, set a weight, and
+   confirm the next `POST /api/imagegen/generate` call includes a `loras`
+   array in its request body with that `file_name`/`weight`.

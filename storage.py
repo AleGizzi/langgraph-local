@@ -99,6 +99,9 @@ def init_db():
         pcols = {r["name"] for r in c.execute("PRAGMA table_info(personas)")}
         if "skills" not in pcols:
             c.execute("ALTER TABLE personas ADD COLUMN skills TEXT NOT NULL DEFAULT '[]'")
+        if "sprite" not in pcols:
+            c.execute("ALTER TABLE personas ADD COLUMN sprite TEXT")
+            c.execute("ALTER TABLE personas ADD COLUMN sprite_meta TEXT")
 
 
 def _team_row_to_dict(r) -> dict:
@@ -173,6 +176,9 @@ def _persona_row_to_dict(r) -> dict:
         "provider": r["provider"], "model": r["model"],
         "params": json.loads(r["params"]), "tools": json.loads(r["tools"]),
         "skills": json.loads(r["skills"]) if "skills" in r.keys() and r["skills"] else [],
+        "sprite": r["sprite"] if "sprite" in r.keys() else None,
+        "sprite_meta": (json.loads(r["sprite_meta"])
+                        if "sprite_meta" in r.keys() and r["sprite_meta"] else None),
         "builtin": bool(r["builtin"]),
     }
 
@@ -213,6 +219,13 @@ def update_persona(pid: int, d: dict):
              d.get("system_prompt", ""), d.get("provider", "ollama"), d.get("model", ""),
              json.dumps(d.get("params", {})), json.dumps(d.get("tools", [])),
              json.dumps(d.get("skills", [])), time.time(), pid))
+    return get_persona(pid)
+
+
+def set_persona_sprite(pid: int, sprite: str, meta: dict):
+    with _conn() as c:
+        c.execute("UPDATE personas SET sprite=?, sprite_meta=?, updated_at=? WHERE id=?",
+                  (sprite, json.dumps(meta) if meta else None, time.time(), pid))
     return get_persona(pid)
 
 

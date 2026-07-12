@@ -359,13 +359,41 @@ def _save_result_items(items) -> list:
     return saved
 
 
+def _write_meta(names: list, meta: dict):
+    """Sidecar <image>.json per generated image: the prompt and settings that
+    produced it. Best-effort — never blocks returning the image itself."""
+    import json as _json
+    for n in names:
+        try:
+            with open(_safe_images_path(n) + ".json", "w", encoding="utf-8") as f:
+                _json.dump(meta, f, ensure_ascii=False)
+        except (OSError, ValueError):
+            continue
+
+
+def image_meta(name: str) -> dict:
+    import json as _json
+    try:
+        with open(_safe_images_path(name) + ".json", encoding="utf-8") as f:
+            return _json.load(f)
+    except (OSError, ValueError, _json.JSONDecodeError):
+        return {}
+
+
 def generate(prompt: str, negative: str = "", steps: int = None,
-            aspect: str = "1152*896", performance: str = None) -> dict:
+            aspect: str = "1152*896", performance: str = None,
+            loras: list = None, styles: list = None) -> dict:
     """POST a text-to-image job to Fooocus-API and poll it to completion.
 
     `performance` picks a Fooocus preset (see PERFORMANCE_MODES); the default is
     a fast LCM/distilled mode so generation is tolerable on weak GPUs. `steps`
-    optionally overrides the step count directly.
+    optionally overrides the step count directly. `loras` is an optional list
+    of {"file_name": str, "weight": float} — each becomes a Fooocus-API
+    `Lora` entry {"enabled": true, "model_name": file_name, "weight": weight}
+    (see loras.py's module docstring for where that shape was confirmed).
+    Weights are clamped to [0, 2] (Fooocus-API itself allows [-2, 2], but
+    negative weights aren't a use case this app exposes). Malformed entries
+    are skipped rather than raising, per this module's "never raise" contract.
     """
     try:
         st = backend_status()
@@ -385,6 +413,28 @@ def generate(prompt: str, negative: str = "", steps: int = None,
         }
         if steps:
             body["advanced_params"] = {"overwrite_step": int(steps)}
+        if styles is not None:
+            # [] disables Fooocus's "Prompt Expansion" style, which otherwise
+            # appends dozens of flavor words that dilute precise prompts
+            # (learned generating creature sprites).
+            body["style_selections"] = [str(s) for s in styles]
+        if loras:
+            lora_entries = []
+            for item in loras:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("file_name") or "").strip()
+                if not name:
+                    continue
+                try:
+                    weight = float(item.get("weight", 0.8))
+                except (TypeError, ValueError):
+                    weight = 0.8
+                weight = max(0.0, min(2.0, weight))
+                lora_entries.append({"enabled": True, "model_name": name,
+                                      "weight": weight})
+            if lora_entries:
+                body["loras"] = lora_entries
 
         r = requests.post(f"{FOOOCUS_URL}/v1/generation/text-to-image",
                           json=body, timeout=(10, 30))
@@ -392,11 +442,19 @@ def generate(prompt: str, negative: str = "", steps: int = None,
         data = r.json()
         job_id = data.get("job_id") if isinstance(data, dict) else None
 
+        gen_meta = {"prompt": prompt, "negative": negative, "aspect": aspect,
+                    "performance": perf,
+                    "loras": [{"file_name": i.get("file_name"),
+                               "weight": i.get("weight")} for i in (loras or [])
+                              if isinstance(i, dict)],
+                    "created": time.time()}
+
         if not job_id:
             # Defensive: server replied synchronously despite async_process=True.
             items = data if isinstance(data, list) else [data]
             saved = _save_result_items(items)
             if saved:
+                _write_meta(saved, gen_meta)
                 return {"ok": True, "images": saved, "error": None}
             return {"ok": False, "images": [],
                      "error": "Fooocus-API did not return a job_id or an image"}
@@ -435,6 +493,7 @@ def generate(prompt: str, negative: str = "", steps: int = None,
         if not saved:
             return {"ok": False, "images": [],
                      "error": "job finished but no images were returned"}
+        _write_meta(saved, gen_meta)
         return {"ok": True, "images": saved, "error": None}
     except requests.RequestException as e:
         return {"ok": False, "images": [], "error": f"Fooocus-API request failed: {e}"}
@@ -448,6 +507,8 @@ def list_images() -> list:
         return []
     entries = []
     for name in os.listdir(IMAGES_DIR):
+        if name.endswith(".json"):  # metadata sidecars, not images
+            continue
         path = os.path.join(IMAGES_DIR, name)
         if os.path.isfile(path):
             entries.append((os.path.getmtime(path), name))

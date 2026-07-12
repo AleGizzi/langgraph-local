@@ -89,6 +89,66 @@ def draft_skill(provider: str, model: str, request: str,
     }
 
 
+PERSONA_SYSTEM = """You design a single reusable AGENT PERSONA for a local LLM
+orchestration app. Respond ONLY with a JSON object:
+
+{"name": "<2-3 word persona name>", "icon": "<one emoji>",
+ "role": "<job title>",
+ "description": "<one line: what this persona is good at>",
+ "system_prompt": "<3-5 specific sentences defining identity, method and
+                   output standards — imperative, no placeholders>",
+ "model": "<pick the best fit from AVAILABLE MODELS: coder model for coding
+           personas, reasoning model for deep-analysis personas, general
+           otherwise>",
+ "provider": "<the provider of that model>",
+ "params": {"temperature": <0.0-1.0 suited to the role>},
+ "tools": [<only from AVAILABLE TOOLS, only if genuinely useful>],
+ "skills": [<only from AVAILABLE SKILLS, only if genuinely useful>],
+ "flavor": "<ONE short visual accessory idea for this persona's creature
+            sprite, e.g. 'carrying a tiny telescope' — max 8 words>"}"""
+
+
+def draft_persona(provider: str, model: str, request: str, models: dict,
+                  tools: list, skills: list, current: dict = None,
+                  feedback: str = None) -> dict:
+    """Draft a persona from a natural-language description."""
+    ctx = (f"AVAILABLE MODELS: "
+           f"{json.dumps({p: models.get(p) or [] for p in ('ollama', 'lmstudio')})}\n"
+           f"AVAILABLE TOOLS: {json.dumps(tools)}\n"
+           f"AVAILABLE SKILLS: {json.dumps(skills)}")
+    user = f"{ctx}\n\nDesign a persona for this description:\n{request}"
+    if current and feedback:
+        user = (f"{ctx}\n\nOriginal description:\n{request}\n\nCurrent draft:\n"
+                f"{json.dumps(current, ensure_ascii=False)}\n\nRevise per this "
+                f"feedback:\n{feedback}\nReturn the full revised JSON.")
+    llm = providers.make_llm(provider, model,
+                             {"temperature": 0.4, "num_predict": 1200})
+    text = _text_of(llm.invoke([SystemMessage(content=PERSONA_SYSTEM),
+                                HumanMessage(content=user)]))
+    data = _extract_json(text)
+    if not isinstance(data, dict):
+        data = {}
+    valid_models = {(p, m) for p in ("ollama", "lmstudio")
+                    for m in (models.get(p) or [])}
+    prov, mdl = data.get("provider", "ollama"), str(data.get("model") or "")
+    if (prov, mdl) not in valid_models:
+        team = _normalize_team({"agents": [{"name": "x", "role": data.get("role", "")}]},
+                               models, [], [])
+        prov, mdl = team["agents"][0]["provider"], team["agents"][0]["model"]
+    return {
+        "name": str(data.get("name") or request[:30])[:40].strip() or "New Persona",
+        "icon": str(data.get("icon") or "🧑")[:8],
+        "role": str(data.get("role", ""))[:80],
+        "description": str(data.get("description", ""))[:200],
+        "system_prompt": str(data.get("system_prompt", "")).strip(),
+        "provider": prov, "model": mdl,
+        "params": data.get("params") if isinstance(data.get("params"), dict) else {},
+        "tools": [t for t in (data.get("tools") or []) if t in tools],
+        "skills": [s for s in (data.get("skills") or []) if s in skills],
+        "flavor": str(data.get("flavor", ""))[:80],
+    }
+
+
 TEAM_SYSTEM = """You design multi-agent TEAMS for a local LLM orchestration app.
 A team is a JSON object:
 

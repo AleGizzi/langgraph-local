@@ -5,19 +5,51 @@
 
 A persona is a **reusable, saved agent definition**: name, icon, role,
 description, system prompt, provider/model, hyperparameters, tools, and
-skills. It's a template, not a running thing — applying a persona copies its
-fields onto a team agent, a chat config, or a new persona draft. Twelve
-builtin personas (Researcher, Writer, Reviewer, Coder, …) ship via
+skills — plus, since the Pokédex update, a generated **creature sprite** and
+`sprite_meta`. It's a template, not a running thing — applying a persona
+copies its fields onto a team agent, a chat config, or a new persona draft.
+Twelve builtin personas (Researcher, Writer, Reviewer, Coder, …) ship via
 `seeds.py`.
+
+The Personas page shows a roster grid; clicking a persona opens its
+**Pokédex-style card** (`PersonaCard`): specs column, sprite, level, playful
+stat bars derived deterministically from real settings (params size, native
+tool support, temperature), tools / abilities / status panels, and the
+sprite-generation button. Editing still uses the unchanged `PersonaEditor`
+with all original fields.
+
+### Sprites: species & evolution (sprites.py)
+
+- **Model family = species**, fixed in code (`sprites.SPECIES`): every
+  qwen-based persona is a violet *Qwenix*, deepseek an *Abyssyn*, llama a
+  *Llamon*, etc. An LLM never decides species traits — consistency is the
+  point.
+- **Parameter count = evolution stage** (≤3B cub → 3–9B adolescent → >9B
+  final form with aura), via `sprites.stage_for`.
+- Role adds an accessory (coder goggles, PMO cape…); the persona wizard may
+  add one short "flavor".
+- `POST /api/personas/<id>/sprite` builds the prompt deterministically,
+  auto-attaches a local LoRA whose filename matches
+  `pokemon|gba|sprite|pixel` (weight 0.8), generates via Fooocus, and stores
+  `sprite` (image filename) + `sprite_meta` (species/family/stage/prompt/lora).
+
+### AI wizard (`kind: "persona"`)
+
+`POST /api/wizard {kind: "persona", request}` → `wizard.draft_persona`
+returns validated persona fields + a `flavor` string. The Personas page
+wizard flow: describe → draft fills the editor → save → the card opens ready
+to generate the sprite (flavor carried through).
 
 ## Key files
 
 | Path | Role |
 |------|------|
-| `app.py` | `_validate_persona` + `/api/personas` CRUD routes. |
-| `storage.py` | `personas` table (`_persona_row_to_dict`, CRUD functions). |
+| `app.py` | `_validate_persona`, `/api/personas` CRUD + `/api/personas/<id>/sprite`. |
+| `storage.py` | `personas` table incl. `sprite`/`sprite_meta` columns (+ `set_persona_sprite`). |
+| `sprites.py` | Species/evolution/accessory rules and the deterministic sprite prompt builder. |
+| `wizard.py` | `draft_persona` (kind=persona). |
 | `seeds.py` | `SEED_PERSONAS` — 12 builtin personas, created once when the table is empty. |
-| `frontend/src/pages/Personas.jsx` | Grid + modal editor (`PersonaEditor`), CRUD. |
+| `frontend/src/pages/Personas.jsx` | Roster grid, `PersonaCard` (Pokédex view), `PersonaEditor`, wizard entries. |
 | `frontend/src/components/AgentFields.jsx` | The shared form (name/role/model/prompt/params/tools/skills) — used here **and** by `TeamEditor`, `Chat`, `FlowEditor`, `PixelStudio`. |
 
 Persona "apply" / "save as persona" touchpoints live in the consuming
@@ -83,6 +115,15 @@ only ever carries hyperparameters inside `params`.
 - Tool/skill filtering drops unknown names silently — a typo'd tool name in
   a raw `POST /api/personas` body just vanishes with no error in the
   response.
+- **Sprite generation is slow and synchronous** (minutes on a weak GPU); the
+  card button shows an "Evolving…" state while the request runs. It requires
+  the Fooocus server to be running (Models page).
+- **Species must stay code-decided.** If you touch `sprites.py`, keep family
+  → species mapping deterministic; longest-family-key matching exists so
+  `tinyllama` doesn't classify as `llama`.
+- While Fooocus is up, Ollama runs CPU-only (`providers.image_server_running`
+  guard) — persona wizard drafts are slower then; without the guard Ollama's
+  runner crashes outright ("llama runner process has terminated").
 
 ## How to verify
 

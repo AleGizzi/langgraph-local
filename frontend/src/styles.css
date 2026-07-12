@@ -638,3 +638,64 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
   color: var(--violet); background: var(--violet-soft); border-radius: 6px;
   padding: 0 6px; font-size: 0.92em; white-space: nowrap;
 }
+
+/* ---------------- Pokédex persona card ---------------- */
+.dex-card {
+  width: min(980px, 96vw); max-height: 92vh; overflow-y: auto;
+  background: linear-gradient(160deg, #0d3542, #0a2733 55%, #0c2f3d);
+  border: 3px solid #041a22; border-radius: 20px; color: #cfe3ea;
+  box-shadow: 0 24px 60px rgba(0,0,0,.55); padding: 0 0 14px;
+}
+.dex-head {
+  display: flex; align-items: center; gap: 12px; padding: 16px 20px;
+  border-bottom: 2px solid rgba(120,200,220,.18);
+}
+.dex-head h2 { margin: 0; color: #fff; font-size: 22px; letter-spacing: .01em; }
+.dex-icon { font-size: 26px; }
+.dex-level {
+  border: 2px solid rgba(150,220,240,.4); border-radius: 999px; padding: 3px 14px;
+  font-weight: 800; color: #eaf7fb; font-size: 15px;
+}
+.dex-active {
+  background: #0d5c3f; color: #7bf0b6; border: 1.5px solid #23a06c;
+  border-radius: 999px; padding: 3px 14px; font-weight: 800; font-size: 12px; letter-spacing: .06em;
+}
+.dex-body { display: grid; grid-template-columns: 1.15fr 1fr 1.1fr; gap: 14px; padding: 16px 20px; }
+.dex-specs { border-right: 1px solid rgba(120,200,220,.14); padding-right: 14px; }
+.dex-spec-row {
+  display: flex; justify-content: space-between; gap: 12px; padding: 7px 0;
+  border-bottom: 1px solid rgba(120,200,220,.12); font-size: 13px;
+}
+.dex-spec-row .k { color: #7fb6c6; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .05em; flex-shrink: 0; }
+.dex-spec-row .v { color: #eaf7fb; text-align: right; word-break: break-word; }
+.dex-sprite { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.dex-sprite img {
+  width: 100%; max-width: 260px; border-radius: 12px; image-rendering: auto;
+  box-shadow: 0 10px 30px rgba(0,0,0,.45); border: 2px solid rgba(150,220,240,.25);
+}
+.dex-sprite-empty {
+  width: 200px; height: 200px; display: flex; align-items: center; justify-content: center;
+  font-size: 84px; background: radial-gradient(circle at 50% 60%, rgba(120,200,220,.16), transparent 70%);
+  border-radius: 50%;
+}
+.dex-species { margin-top: 8px; font-weight: 800; color: #fff; display: flex; gap: 8px; align-items: center; }
+.dex-stage { color: #ffd23f; letter-spacing: 2px; }
+.dex-stats { display: flex; flex-direction: column; gap: 9px; }
+.dex-stat-head { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 800; letter-spacing: .04em; color: #cfe3ea; margin-bottom: 3px; }
+.dex-bar { display: flex; gap: 3px; }
+.dex-bar .seg { flex: 1; height: 9px; border-radius: 3px; background: rgba(120,200,220,.15); }
+.dex-bar .seg.on.green { background: #6cd96c; } .dex-bar .seg.on.amber { background: #f5b83d; }
+.dex-bar .seg.on.accent { background: #4f9cf5; } .dex-bar .seg.on.violet { background: #a48afb; }
+.dex-bar .seg.on.teal { background: #35c4b5; }
+.dex-lower { display: grid; grid-template-columns: 1.2fr 1.1fr 1fr; gap: 12px; padding: 4px 20px 10px; }
+.dex-panel { background: rgba(6,26,34,.55); border: 1px solid rgba(120,200,220,.16); border-radius: 12px; padding: 12px 14px; }
+.dex-panel h4 { margin: 0 0 8px; color: #6fd3e8; font-size: 12px; letter-spacing: .08em; }
+.dex-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dex-chip { background: rgba(120,200,220,.12); border: 1px solid rgba(120,200,220,.22); border-radius: 8px; padding: 4px 10px; font-size: 12px; color: #eaf7fb; }
+.dex-ability { display: flex; flex-direction: column; margin-bottom: 7px; font-size: 12.5px; }
+.dex-ability b { color: #ffd9a0; } .dex-ability span { color: #9fc3cf; font-size: 11.5px; }
+.dex-dim { color: #6d93a0; font-size: 12px; }
+.dex-foot { display: flex; align-items: center; gap: 12px; padding: 10px 20px 4px; border-top: 1px solid rgba(120,200,220,.14); }
+.dex-personality { flex: 1; font-size: 13px; color: #cfe3ea; }
+.dex-personality b { color: #6fd3e8; letter-spacing: .06em; font-size: 11px; }
+.persona-thumb { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border-strong); }

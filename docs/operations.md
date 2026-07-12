@@ -138,6 +138,9 @@ All paths default to subdirectories under the project root. In Docker, these are
 | `IMAGES_DIR` | `{project}/data/images` | Directory for storing generated images |
 | `IMAGEGEN_TIMEOUT` | `2400` | Timeout in seconds for polling image generation jobs; increase for low-VRAM GPUs |
 | `IMAGEGEN_PERFORMANCE` | `Extreme Speed` | Default Fooocus performance preset (one of: `Extreme Speed`, `Lightning`, `Hyper-SD`, `Speed`, `Quality`) |
+| `TOOL_DELEGATE_MODEL` | (auto-picked) | Executor model for tool delegation, `provider::model` or bare model name; auto-selects a tool-capable model when unset |
+| `FOOOCUS_LORAS_DIR` | `<FOOOCUS_DIR>/repositories/Fooocus/models/loras` | Where downloaded style LoRAs are stored |
+| `CIVITAI_API_KEY` | (unset) | Bearer token for Civitai LoRA downloads that require a logged-in account |
 
 ### Setting Environment Variables
 
