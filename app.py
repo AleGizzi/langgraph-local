@@ -5,7 +5,9 @@ import json
 import os
 import queue
 import re
+import time
 
+import requests
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
 import providers
@@ -30,8 +32,8 @@ _catalog.get_catalog(auto_refresh=True)
 
 # Used by the SPA to detect that the server (and likely the bundle) changed
 # under an open tab, and offer a reload instead of running stale code.
-import time as _time  # noqa: E402
-SERVER_STARTED = _time.time()
+# (time imported at top)
+SERVER_STARTED = time.time()
 
 VALID_TOPOLOGIES = {"single", "pipeline", "supervisor", "graph"}
 
@@ -180,6 +182,14 @@ def health():
 @app.get("/api/models")
 def models():
     return jsonify(providers.list_models())
+
+
+@app.get("/api/help/agent")
+def help_agent():
+    """Config for the in-app help assistant (posted back to /api/chat)."""
+    import help as help_mod
+    cfg = help_mod.agent_config(providers.list_models())
+    return jsonify({"agent": cfg, "available": bool(cfg["model"])})
 
 
 @app.get("/api/tools")
@@ -515,8 +525,40 @@ def system_report():
     return jsonify(report)
 
 
-@app.post("/api/setup/install")
-def setup_install():
+@app.get("/api/system/memory")
+def system_memory():
+    return jsonify(sysinfo.memory_report())
+
+
+@app.post("/api/system/free-memory")
+def system_free_memory():
+    """Free RAM the app itself is holding: unload Ollama models and/or stop the
+    image server. Returns before/after so the UI can show what was reclaimed."""
+    import imagegen
+    body = request.get_json(force=True) or {}
+    before = sysinfo.memory_report()
+    done = []
+
+    if body.get("unload_models", True):
+        for m in before["ollama_loaded"]:
+            try:
+                # keep_alive=0 tells Ollama to drop the model immediately.
+                requests.post(f"{providers.OLLAMA_URL}/api/generate",
+                              json={"model": m["name"], "keep_alive": 0},
+                              timeout=10)
+                done.append(f"unloaded {m['name']}")
+            except requests.RequestException as e:
+                done.append(f"could not unload {m['name']}: {e}")
+
+    if body.get("stop_image_server", True) and before["image_server"]["running"]:
+        res = imagegen.stop_server()
+        done.append("stopped image server" if res.get("ok")
+                    else f"image server: {res.get('error')}")
+
+    time.sleep(1.5)  # let the kernel reclaim
+    after = sysinfo.memory_report()
+    return jsonify({"actions": done, "before": before, "after": after,
+                    "freed_gb": round(after["available_gb"] - before["available_gb"], 1)})
     import installer
     body = request.get_json(force=True) or {}
     provider = body.get("provider")

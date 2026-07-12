@@ -699,3 +699,60 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
 .dex-personality { flex: 1; font-size: 13px; color: #cfe3ea; }
 .dex-personality b { color: #6fd3e8; letter-spacing: .06em; font-size: 11px; }
 .persona-thumb { width: 46px; height: 46px; border-radius: 10px; object-fit: cover; border: 1px solid var(--border-strong); }
+
+/* ---------------- help assistant ---------------- */
+.help-fab {
+  position: fixed; right: 22px; bottom: 22px; z-index: 50;
+  width: 52px; height: 52px; border-radius: 50%; border: none;
+  background: linear-gradient(135deg, #155eef, #6938ef); color: #fff;
+  font-size: 22px; box-shadow: 0 8px 24px rgba(16,24,40,.35);
+  display: flex; align-items: center; justify-content: center;
+}
+.help-fab:hover { transform: translateY(-2px); }
+.help-fab.open { background: #344054; }
+.help-panel {
+  position: fixed; right: 22px; bottom: 86px; z-index: 50;
+  width: min(400px, calc(100vw - 44px)); height: min(560px, calc(100vh - 130px));
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; box-shadow: var(--shadow-lg); overflow: hidden;
+}
+.help-head {
+  display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+  border-bottom: 1px solid var(--border); background: var(--surface-2); font-size: 13.5px;
+}
+.help-model { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+.help-body { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.help-intro { color: var(--text-2); font-size: 13px; }
+.help-suggestions { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.help-sugg {
+  text-align: left; padding: 7px 11px; border-radius: 9px; font-size: 12.5px;
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2);
+}
+.help-sugg:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.help-msg { font-size: 13px; max-width: 92%; }
+.help-msg.user {
+  align-self: flex-end; background: var(--accent); color: #fff;
+  padding: 7px 11px; border-radius: 12px 12px 4px 12px;
+}
+.help-msg.assistant {
+  align-self: flex-start; background: var(--bg); border: 1px solid var(--border);
+  padding: 7px 11px; border-radius: 12px 12px 12px 4px;
+}
+.help-msg.assistant .md { font-size: 13px; }
+.help-msg.assistant .md p:first-child { margin-top: 0; }
+.help-msg.assistant .md p:last-child { margin-bottom: 0; }
+.help-input { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.help-input input {
+  flex: 1; border: 1px solid var(--border-strong); border-radius: 9px;
+  padding: 8px 11px; outline: none; background: var(--surface); font-size: 13px;
+}
+.help-input input:focus { border-color: var(--accent); }
+
+/* ---------------- free memory ---------------- */
+.mem-bar {
+  position: relative; height: 14px; border-radius: 999px; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.mem-fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); }
+.mem-fill.freeable { background: repeating-linear-gradient(45deg, var(--green), var(--green) 5px, color-mix(in srgb, var(--green) 65%, #fff) 5px, color-mix(in srgb, var(--green) 65%, #fff) 10px); }

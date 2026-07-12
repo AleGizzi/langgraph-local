@@ -273,6 +273,79 @@ def assess():
     }
 
 
+def memory_report() -> dict:
+    """Live memory snapshot + what the app itself can free right now.
+
+    Aimed at the "I want to run a bigger model" case: the two biggest levers on
+    this machine are Ollama's keep-alive'd models and the Fooocus image server
+    (a resident SDXL eats many GB and the GPU).
+    """
+    meminfo = _read("/proc/meminfo")
+
+    def mem(key):
+        mm = re.search(rf"{key}:\s+(\d+)", meminfo)
+        return round(int(mm.group(1)) / 1024 / 1024, 1) if mm else 0.0
+
+    total, available, free = mem("MemTotal"), mem("MemAvailable"), mem("MemFree")
+    cached = mem("Cached")
+    swap_total, swap_free = mem("SwapTotal"), mem("SwapFree")
+
+    loaded = []
+    try:
+        r = requests.get(f"{OLLAMA_URL}/api/ps", timeout=3)
+        for m in r.json().get("models", []):
+            loaded.append({"name": m.get("name"),
+                           "size_gb": round(m.get("size", 0) / 1e9, 1),
+                           "processor": m.get("details", {}).get("processor")
+                           or ("GPU" if m.get("size_vram") else "CPU"),
+                           "until": m.get("expires_at")})
+    except Exception:  # noqa: BLE001
+        pass
+
+    image_server = False
+    image_rss = 0.0
+    try:
+        import imagegen
+        pids = imagegen._find_server_pids()
+        image_server = bool(pids)
+        for pid in pids:
+            st = _read(f"/proc/{pid}/status")
+            mm = re.search(r"VmRSS:\s+(\d+)", st)
+            if mm:
+                image_rss += int(mm.group(1)) / 1024 / 1024
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Heaviest user processes, so the guide can name real culprits.
+    procs = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        st = _read(f"/proc/{entry}/status")
+        mm = re.search(r"VmRSS:\s+(\d+)", st)
+        if not mm:
+            continue
+        rss = int(mm.group(1)) / 1024 / 1024
+        if rss < 0.3:
+            continue
+        name = re.search(r"Name:\s+(.+)", st)
+        procs.append({"pid": int(entry), "name": name.group(1) if name else "?",
+                      "rss_gb": round(rss, 1)})
+    procs.sort(key=lambda p: -p["rss_gb"])
+
+    freeable = round(sum(m["size_gb"] for m in loaded) + image_rss, 1)
+    return {
+        "total_gb": total, "available_gb": available, "free_gb": free,
+        "cached_gb": cached,
+        "swap_total_gb": swap_total, "swap_used_gb": round(swap_total - swap_free, 1),
+        "ollama_loaded": loaded,
+        "image_server": {"running": image_server, "rss_gb": round(image_rss, 1)},
+        "top_processes": procs[:8],
+        "freeable_gb": freeable,
+        "largest_model_fits_gb": round(max(0.0, available + freeable - OS_RESERVE_GB), 1),
+    }
+
+
 def full_report():
     return {
         "hardware": hardware(),

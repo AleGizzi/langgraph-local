@@ -301,22 +301,77 @@ def start_server() -> dict:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
-def stop_server() -> dict:
-    """Best-effort terminate the tracked Fooocus-API server process."""
-    pid = _read_pid()
-    if pid:
+def _find_server_pids() -> list:
+    """Locate running Fooocus-API server processes by their command line.
+
+    The PID file alone is not enough: it goes stale across app restarts and
+    manual launches, and a stale file used to make stop_server() silently kill
+    nothing while still reporting success (the server then kept holding GPU+RAM,
+    starving Ollama). Always fall back to scanning /proc.
+    """
+    pids = []
+    main_py = os.path.join(FOOOCUS_DIR, "main.py")
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
         try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
+            with open(f"/proc/{entry}/cmdline", "rb") as f:
+                cmd = f.read().decode("utf-8", "ignore")
+        except OSError:
+            continue
+        if main_py in cmd:
+            pids.append(int(entry))
+    return pids
+
+
+def _kill(pid: int, sig):
+    try:
+        os.killpg(os.getpgid(pid), sig)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            os.kill(pid, sig)
         except (ProcessLookupError, PermissionError, OSError):
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
+            pass
+
+
+def stop_server() -> dict:
+    """Terminate the Fooocus-API server and VERIFY it is gone.
+
+    Returns {"ok": False, "error": ...} if it survives — never claim success
+    we can't confirm (freeing its GPU/RAM is the whole point).
+    """
+    pids = set(_find_server_pids())
+    tracked = _read_pid()
+    if tracked:
+        pids.add(tracked)
+    if not pids:
+        try:
+            os.remove(_pid_file())
+        except OSError:
+            pass
+        return {"ok": True, "error": None}
+
+    for pid in pids:
+        _kill(pid, signal.SIGTERM)
+    for _ in range(20):  # up to ~10s for a graceful exit
+        time.sleep(0.5)
+        if not _find_server_pids():
+            break
+    else:
+        for pid in _find_server_pids():  # still there → force it
+            _kill(pid, signal.SIGKILL)
+        time.sleep(1)
+
     try:
         os.remove(_pid_file())
     except OSError:
         pass
-    return {"ok": True}
+    remaining = _find_server_pids()
+    if remaining:
+        return {"ok": False,
+                "error": f"image server still running (pid {remaining[0]}) — "
+                         "kill it manually"}
+    return {"ok": True, "error": None}
 
 
 def _save_result_items(items) -> list:

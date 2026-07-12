@@ -13,6 +13,7 @@ import FlowEditor from "./pages/FlowEditor.jsx";
 import Chat from "./pages/Chat.jsx";
 import Knowledge from "./pages/Knowledge.jsx";
 import PixelStudio from "./pages/PixelStudio.jsx";
+import HelpAssistant from "./components/HelpAssistant.jsx";
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -103,6 +104,7 @@ export default function App() {
     return (
       <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs, theme }}>
         <FlowEditor teamId={+route.id} key={route.id} />
+        <HelpAssistant />
       </AppCtx.Provider>
     );
   }
@@ -110,6 +112,7 @@ export default function App() {
     return (
       <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs, theme }}>
         <PixelStudio teamId={+route.id} key={route.id} />
+        <HelpAssistant />
       </AppCtx.Provider>
     );
   }
@@ -188,6 +191,7 @@ export default function App() {
           )}
           <div className={route.page === "chat" ? "page-full" : "page"}>{view}</div>
         </main>
+        <HelpAssistant />
       </div>
     </AppCtx.Provider>
   );

@@ -104,8 +104,26 @@ all HTTP scraping/parsing and arithmetic heuristics.
   daemon threads tracked in a shared in-memory `_installs` dict; the UI
   polls `GET /api/install/status`.
 
+### Free memory (Settings)
+
+`GET /api/system/memory` → live snapshot: total/available/cached/swap, models
+currently loaded in Ollama (`/api/ps`), whether the Fooocus image server is
+running and its RSS, the top RSS processes, `freeable_gb` (what the app itself
+can release) and `largest_model_fits_gb`.
+
+`POST /api/system/free-memory {unload_models?, stop_image_server?}` → unloads
+Ollama models (`keep_alive: 0`) and/or stops the image server, then returns
+`{actions, before, after, freed_gb}`. `FreeMemory.jsx` (Settings page) renders
+the snapshot, one-click actions, and a collapsible Linux/Pop!_OS guide
+(keep-alive tuning, `OLLAMA_MAX_LOADED_MODELS`, drop_caches, zram, TTY).
+
 ## Gotchas
 
+- **`imagegen.stop_server()` used to lie.** It killed only the PID in a stale
+  pid-file and still returned `ok: true`, leaving Fooocus holding ~10 GB + the
+  GPU (which starves Ollama to a crawl). It now scans `/proc` for the real
+  process, escalates SIGTERM→SIGKILL, and **verifies** it is gone before
+  reporting success. Don't reintroduce pid-file-only killing.
 - **Catalog scraping is HTML+regex, no official API.** If `ollama.com`
   changes its markup, `refresh()` catches the exception, sets
   `_state["error"]`, and the app quietly keeps serving the last good cache
