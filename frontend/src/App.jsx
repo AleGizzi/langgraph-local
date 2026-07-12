@@ -66,13 +66,24 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    api("/models").then(setModels).catch(() => {});
+    const loadModels = () => api("/models").then(setModels).catch(() => {});
+    loadModels();
     api("/params").then(setParamSpecs).catch(() => {});
     reloadCatalogs();
-    const poll = () => api("/health").then(setHealth).catch(() => {});
+    // Refresh models on the same cadence as health (and on focus) so models
+    // pulled from the in-app catalog after mount show up in dropdowns without
+    // a hard reload.
+    const poll = () => {
+      api("/health").then(setHealth).catch(() => {});
+      loadModels();
+    };
     poll();
     const t = setInterval(poll, 15000);
-    return () => clearInterval(t);
+    window.addEventListener("focus", loadModels);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("focus", loadModels);
+    };
   }, []);
 
   const active = ["team", "flow", "pixel"].includes(route.page) ? "teams" : route.page === "run" ? "runs" : route.page;
