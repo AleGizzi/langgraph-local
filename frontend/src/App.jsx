@@ -54,6 +54,8 @@ export default function App() {
   const [skills, setSkills] = useState([]);
   const [paramSpecs, setParamSpecs] = useState([]);
   const [health, setHealth] = useState(null);
+  const [staleBundle, setStaleBundle] = useState(false);
+  const firstStarted = React.useRef(null);
 
   const reloadCatalogs = () => {
     api("/tools").then(setTools).catch(() => {});
@@ -74,7 +76,15 @@ export default function App() {
     // pulled from the in-app catalog after mount show up in dropdowns without
     // a hard reload.
     const poll = () => {
-      api("/health").then(setHealth).catch(() => {});
+      api("/health").then((h) => {
+        setHealth(h);
+        // Server restarted since this tab loaded → the JS bundle is likely
+        // outdated; offer a reload instead of silently running stale code.
+        if (h.server_started) {
+          if (firstStarted.current === null) firstStarted.current = h.server_started;
+          else if (h.server_started !== firstStarted.current) setStaleBundle(true);
+        }
+      }).catch(() => {});
       loadModels();
     };
     poll();
@@ -114,7 +124,7 @@ export default function App() {
   else if (route.page === "setup") view = <Setup />;
   else if (route.page === "settings") view = <Settings />;
   else if (route.page === "toolbox") view = <Toolbox />;
-  else if (route.page === "chat") view = <Chat />;
+  else if (route.page === "chat") view = <Chat personaId={route.id ? +route.id : null} key={route.id || "chat"} />;
   else if (route.page === "knowledge") view = <Knowledge />;
   else view = <Teams />;
 
@@ -157,6 +167,12 @@ export default function App() {
           </div>
         </aside>
         <main className="main">
+          {staleBundle && (
+            <a className="first-run-banner" onClick={() => location.reload()}
+              style={{ cursor: "pointer" }}>
+              🔄 The app was updated behind this tab — click to reload the new version.
+            </a>
+          )}
           {health && !health.providers.ollama.up && !health.providers.lmstudio.up && route.page !== "setup" && (
             <a className="first-run-banner" href="#/setup">
               🚀 No local model provider is running — open <strong>Setup</strong> to

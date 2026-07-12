@@ -100,6 +100,14 @@ There is **no** `run_start`, `agent_start`, `agent_end`, or `run_end` in chat
 - Selecting a non-tool-capable model with tools enabled produces a plain
   error, not a delegated fallback — this is intentional (see CLAUDE.md), but
   easy to mistake for a bug if you expect run-like delegation behavior.
+- **Chat is very slow while the Fooocus image server is running**: the GPU
+  coexistence guard forces Ollama to CPU-only, and Fooocus's resident SDXL
+  eats most RAM — a 7B reply can take minutes or time out. Stop the image
+  server (Models page) when you're done generating.
+- **Deep link `#/chat/<personaId>`** (used by the Personas page's 💬
+  buttons) starts a fresh conversation as that persona — it applies the
+  persona and clears any open chat, so don't link to it from flows that
+  expect to preserve the current conversation.
 - Chat runs synchronously in the request thread; with gunicorn's 16 threads
   (per `docs/architecture.md`), many concurrent long chat streams can starve
   other requests. There is no per-chat cancellation endpoint — the client

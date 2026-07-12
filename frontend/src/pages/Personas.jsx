@@ -145,6 +145,9 @@ function PersonaCard({ persona, onClose, onEdit, onChanged }) {
           <span className="dex-personality">
             💬 <b>PERSONALITY</b> {(p.system_prompt || "").split(".")[0].slice(0, 140) || "A mysterious agent."}
           </span>
+          <button className="btn sm primary" onClick={() => (location.hash = `#/chat/${p.id}`)}>
+            💬 Chat with {p.name.split(" ")[0]}
+          </button>
           <button className="btn sm" onClick={() => onEdit(p)}>✏️ Edit settings</button>
         </div>
       </div>
@@ -270,6 +273,8 @@ export default function Personas() {
               {p.builtin && <span className="chip">builtin</span>}
             </div>
             <div className="card-actions">
+              <button className="icon-btn" title={`Chat with ${p.name}`}
+                onClick={(e) => { e.stopPropagation(); location.hash = `#/chat/${p.id}`; }}>💬</button>
               <button className="icon-btn" title="Edit" onClick={(e) => { e.stopPropagation(); setWizMode(false); setEditing(p); }}>✏️</button>
               <button className="icon-btn" title="Delete" onClick={(e) => del(p, e)}>🗑️</button>
             </div>

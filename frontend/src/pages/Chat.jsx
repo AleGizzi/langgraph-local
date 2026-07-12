@@ -4,7 +4,7 @@ import { useApp } from "../App.jsx";
 import AgentFields from "../components/AgentFields.jsx";
 import { Md } from "../lib/markdown.jsx";
 
-export default function Chat() {
+export default function Chat({ personaId = null }) {
   const { models } = useApp();
   const [personas, setPersonas] = useState([]);
   const [agent, setAgent] = useState({
@@ -24,9 +24,18 @@ export default function Chat() {
 
   const loadChats = () => api("/chats").then(setChats).catch(() => {});
   useEffect(() => {
-    api("/personas").then(setPersonas).catch(() => {});
+    api("/personas").then((ps) => {
+      setPersonas(ps);
+      // Deep link #/chat/<personaId> (from the Personas page): start a fresh
+      // conversation as that persona.
+      if (personaId) {
+        const p = ps.find((x) => x.id === personaId);
+        if (p) { applyPersona(p); setChatId(null); setMessages([]); }
+        else toast("Persona not found", true);
+      }
+    }).catch(() => {});
     loadChats();
-  }, []);
+  }, [personaId]);
 
   const persist = async (agentCfg, msgs) => {
     const clean = msgs.filter((m) => !m.live)

@@ -28,6 +28,11 @@ seeds.seed_if_empty()
 import catalog as _catalog  # noqa: E402
 _catalog.get_catalog(auto_refresh=True)
 
+# Used by the SPA to detect that the server (and likely the bundle) changed
+# under an open tab, and offer a reload instead of running stale code.
+import time as _time  # noqa: E402
+SERVER_STARTED = _time.time()
+
 VALID_TOPOLOGIES = {"single", "pipeline", "supervisor", "graph"}
 
 
@@ -168,7 +173,8 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return jsonify({"ok": True, "providers": providers.provider_status()})
+    return jsonify({"ok": True, "providers": providers.provider_status(),
+                    "server_started": SERVER_STARTED})
 
 
 @app.get("/api/models")
