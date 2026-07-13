@@ -205,11 +205,25 @@ and **prompts that already produced images here** (read back from the knowledge
 vault, falling back to image sidecars) — so it improves as you use the app.
 Model: a small non-reasoning local model (same picker as `help.py`).
 
-> LoRA selection is done **in code** (`imgprompt.suggest_loras`), not by the
-> model: a 4B model wouldn't reliably pick the obviously-matching LoRA even when
-> instructed to. The matcher needs two overlapping words, or one high-signal
-> style word (`gba`, `pixel`, `pokemon`…), so a LoRA whose description merely
-> contains "portrait" doesn't hijack a photorealistic portrait request.
+> **The model never sees the LoRAs, and never picks them.** Told about them, a
+> 4B model first refused to select the obvious match; once the instruction was
+> firmed up it attached a GBA-sprite LoRA to a *ramen photo* and pasted the
+> literal file name into the prompt text. Selection is a lookup, so
+> `imgprompt.suggest_loras()` does it in code — matched against the USER's
+> request (never the generated prompt, which the model has been caught
+> contaminating with LoRA names). It needs two overlapping words or one
+> high-signal style word (`gba`, `pixel`, `pokemon`…), so a LoRA whose
+> description merely contains "portrait" doesn't hijack a photorealistic
+> portrait request. Trigger words are appended in code afterwards.
+
+> **Past prompts are filtered, not dumped.** Injecting every recent prompt as an
+> "example" overfitted the assistant: after a couple of frog images, unrelated
+> requests came back as frogs. Examples are now deduplicated, only included when
+> they share real vocabulary with the request (none at all if nothing matches),
+> capped at 2, and labelled as FORMATTING references. `_is_contaminated()` is a
+> deterministic backstop: if the returned prompt carries an old image's
+> distinctive words that the request never mentioned, it is regenerated with no
+> examples at all.
 
 **Durable job queue** (`imgqueue.py`) — jobs are persisted in the `image_jobs`
 table and run **one at a time** (one GPU; two would just thrash):
