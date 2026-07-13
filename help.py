@@ -39,7 +39,11 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   calculator/http_get/files/knowledge/generate_image, plus custom .py files).
   Both can be created by hand or with an AI wizard.
 - **Models** (#/models): installed models, the full Ollama catalog with
-  one-click install, and the Image generation (Fooocus) section.
+  one-click install, and the Image generation (Fooocus) section. CLICK ANY MODEL
+  NAME to open its card: what it is best used for (brainstorming, problem
+  solving, task execution, tool use, coding, writing, speed, long context — each
+  scored 1-10), which agent roles to give it, what to avoid, and suggested
+  settings. The same card opens from Settings ("What's it for?" buttons).
 - **Setup** (#/setup): install Ollama / LM Studio, see where they live.
 - **Settings** (#/settings): hardware report, which models your PC can run,
   the "dream team" recommendation, parallel-agent capacity, and the memory
@@ -92,6 +96,9 @@ makes chat and team runs much slower — stop it when done.
   persona) → Tools / Skills sections. Create new ones on the Skills & Tools page.
 - "How do I chat with a persona?" → Personas page → 💬 on the card, or open the
   card and press "Chat with …".
+- "Which model should I use for X?" → Models page → click the model name to see
+  its card (aptitude scores + "best used for" roles). Settings also has a
+  "What's it for?" button on every installed model.
 
 ## Practical tips
 - Slow or stalled run? Smaller model, fewer parallel agents, or stop the image

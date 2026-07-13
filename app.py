@@ -184,6 +184,46 @@ def models():
     return jsonify(providers.list_models())
 
 
+@app.get("/api/models/card")
+def model_card():
+    """'What is this model best used for?' — deterministic aptitude card.
+
+    Facts come from the live catalog (capability tags, params, size) and the
+    hardware assessment (speed estimate, RAM verdict); scoring is in
+    modelinfo.py. Query: ?name=<model>&provider=<ollama|lmstudio>
+    """
+    import catalog as catalog_mod
+    import modelinfo
+    name = (request.args.get("name") or "").strip()
+    if not name:
+        abort(400, "name is required")
+    provider = request.args.get("provider") or "ollama"
+
+    facts = {}
+    base = name.split(":")[0].lower()
+    for m in (catalog_mod.load_cache() or {}).get("models", []):
+        if m.get("name") == name:
+            facts = m
+            break
+        if not facts and (m.get("base") or "").lower() == base:
+            facts = m  # family fallback: capabilities are family-wide
+    hw = sysinfo.hardware()
+    assessed = next((i for i in sysinfo.assess()["installed"] if i["name"] == name), {})
+
+    return jsonify(modelinfo.card(
+        name, provider=provider,
+        capabilities=facts.get("capabilities"),
+        params_b=assessed.get("params_b") or facts.get("params_b"),
+        size_gb=assessed.get("size_gb") or facts.get("size_gb"),
+        quant=assessed.get("quant"),
+        est_tok_s=assessed.get("est_tok_s")
+        or sysinfo._speed_estimate(facts.get("params_b"), hw["gpu"]),
+        verdict=assessed.get("verdict") or facts.get("verdict"),
+        verdict_label=assessed.get("verdict_label") or facts.get("verdict_label"),
+        installed=bool(assessed),
+        description=facts.get("description", "")))
+
+
 @app.get("/api/help/agent")
 def help_agent():
     """Config for the in-app help assistant (posted back to /api/chat)."""

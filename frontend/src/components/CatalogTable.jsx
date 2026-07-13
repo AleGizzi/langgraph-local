@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, toast } from "../lib/api.js";
+import ModelCard from "./ModelCard.jsx";
 
 function ago(ts) {
   if (!ts) return "never";
@@ -15,6 +16,7 @@ export default function CatalogTable({ compact = false, withDreamTeam = false, d
   const [cat, setCat] = useState("all");
   const [showAll, setShowAll] = useState(false);
   const [target, setTarget] = useState("ollama");
+  const [card, setCard] = useState(null);
   const [installs, setInstalls] = useState({});
   const pollRef = useRef(null);
 
@@ -177,7 +179,9 @@ export default function CatalogTable({ compact = false, withDreamTeam = false, d
                 <tr key={m.name}>
                   <td>
                     {medal(m) && <span style={{ marginRight: 5 }}>{medal(m)}</span>}
-                    <span className="mono" style={{ fontFamily: "var(--mono)", fontSize: 12.5 }}>{m.name}</span>
+                    <span className="mono model-pill-inline" title="What is this model best used for?"
+                      style={{ fontFamily: "var(--mono)", fontSize: 12.5, cursor: "pointer" }}
+                      onClick={() => setCard(m.name)}>{m.name}</span>
                     {(m.categories || []).filter((c) => c !== "general" || m.categories.length === 1).map((c) => (
                       <span key={c} className="chip" style={{ marginLeft: 6 }}
                         title={data.categories?.[c]?.label}>
@@ -217,6 +221,7 @@ export default function CatalogTable({ compact = false, withDreamTeam = false, d
           Show all {rows.length} models
         </button>
       )}
+      {card && <ModelCard name={card} onClose={() => setCard(null)} />}
     </div>
   );
 }

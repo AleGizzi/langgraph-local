@@ -1,10 +1,12 @@
-import React from "react";
+import React, { useState } from "react";
 import { useApp } from "../App.jsx";
 import CatalogTable from "../components/CatalogTable.jsx";
 import ImageGen from "../components/ImageGen.jsx";
+import ModelCard from "../components/ModelCard.jsx";
 
 export default function Models() {
   const { models, health } = useApp();
+  const [card, setCard] = useState(null);
   if (!health) return null;
   const groups = [
     ["ollama", "Ollama", health.providers.ollama],
@@ -15,7 +17,9 @@ export default function Models() {
       <div className="page-head">
         <div>
           <h1 className="page-title">Models</h1>
-          <p className="page-sub">Chat models discovered from your local providers</p>
+          <p className="page-sub">
+            Your local models — click any one to see what it's best used for
+          </p>
         </div>
         <a className="btn" href="#/settings">⚙️ Which models fit my PC?</a>
       </div>
@@ -29,7 +33,11 @@ export default function Models() {
             </span>
           </h3>
           <div className="model-list">
-            {(models[key] || []).map((m) => <span key={m} className="model-pill">{m}</span>)}
+            {(models[key] || []).map((m) => (
+              <span key={m} className="model-pill clickable"
+                title="See what this model is best used for"
+                onClick={() => setCard({ name: m, provider: key })}>{m} →</span>
+            ))}
             {!(models[key] || []).length && (
               <span style={{ color: "var(--text-3)" }}>
                 {st.up ? "No chat models loaded." : "Provider not reachable — see the Setup page."}
@@ -38,6 +46,10 @@ export default function Models() {
           </div>
         </div>
       ))}
+      {card && (
+        <ModelCard name={card.name} provider={card.provider}
+          onClose={() => setCard(null)} />
+      )}
       <div className="card section-card" style={{ marginTop: 16 }}>
         <h2>⬇ Get more models</h2>
         <div className="sub">

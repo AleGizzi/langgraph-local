@@ -117,8 +117,35 @@ Ollama models (`keep_alive: 0`) and/or stops the image server, then returns
 the snapshot, one-click actions, and a collapsible Linux/Pop!_OS guide
 (keep-alive tuning, `OLLAMA_MAX_LOADED_MODELS`, drop_caches, zram, TTY).
 
+### Model cards — "what is this model best used for?"
+
+`GET /api/models/card?name=<model>&provider=<ollama|lmstudio>` → a Pokédex-style
+card (`ModelCard.jsx`, opened from the Models page pills, the Settings installed
+table, and the catalog table):
+
+- **8 aptitudes scored 1-10** (brainstorming, problem solving, task execution,
+  tool & skill use, coding, writing, speed, long context)
+- **best_for**: concrete roles in this app (Coder agent, Supervisor, Writer,
+  Brainstormer, Help assistant…), ranked by the score they actually earn and
+  gated behind a per-role minimum — so not every model gets called an
+  orchestrator
+- **avoid** + **notes**: e.g. "no native tool use → don't give it tools in Chat
+  (team runs auto-delegate)", "reasoning model: give it ≥2000 max tokens"
+- **suggested_params**: a sane starting temperature / max tokens / context
+
+Scoring lives in `modelinfo.py` and is **deterministic — no LLM rates models**.
+Inputs: catalog capability tags (`tools`, `thinking`, `vision`), model family
+(`FAMILY_TRAITS`), parameter count, this machine's speed estimate and RAM
+verdict, plus `engine._tool_support_cache` (runtime truth about builds that
+actually reject tool binding, which beats the catalog's family-wide tag).
+
 ## Gotchas
 
+- **Model scores are relative, not benchmarks.** They answer "which of MY
+  models should I point at this job?" Bonuses are capped at `size_score + 2`
+  because a 1.5B "reasoning" model was otherwise ranking as a 10/10 supervisor,
+  and non-coder families are capped at 7.5 coding so a big generalist doesn't
+  outrank a coder model at coding. Keep those caps if you tune the weights.
 - **`imagegen.stop_server()` used to lie.** It killed only the PID in a stale
   pid-file and still returned `ok: true`, leaving Fooocus holding ~10 GB + the
   GPU (which starves Ollama to a crawl). It now scans `/proc` for the real

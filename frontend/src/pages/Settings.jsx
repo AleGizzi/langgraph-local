@@ -3,13 +3,14 @@ import { api } from "../lib/api.js";
 import CatalogTable from "../components/CatalogTable.jsx";
 import ImageModels from "../components/ImageModels.jsx";
 import FreeMemory from "../components/FreeMemory.jsx";
+import ModelCard from "../components/ModelCard.jsx";
 
-function AssessTable({ rows, showInstalled }) {
+function AssessTable({ rows, showInstalled, onPick }) {
   return (
     <table className="assess">
       <thead>
         <tr>
-          <th>Model</th><th>Size</th><th>Est. speed</th><th>Verdict</th>
+          <th>Model</th><th>Size</th><th>Est. speed</th><th>Verdict</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -23,6 +24,11 @@ function AssessTable({ rows, showInstalled }) {
             <td>{m.size_gb} GB</td>
             <td>{m.est_tok_s ? `~${m.est_tok_s} tok/s` : "—"}</td>
             <td><span className={"verdict " + m.verdict} title={m.verdict_label}>{m.verdict === "no" ? "won't run" : m.verdict}</span></td>
+            <td>
+              <button className="btn sm" onClick={() => onPick(m.name)}>
+                What's it for?
+              </button>
+            </td>
           </tr>
         ))}
       </tbody>
@@ -32,6 +38,7 @@ function AssessTable({ rows, showInstalled }) {
 
 export default function Settings() {
   const [sys, setSys] = useState(null);
+  const [card, setCard] = useState(null);
   useEffect(() => { api("/system").then(setSys).catch(() => {}); }, []);
   if (!sys) return <p className="page-sub">Assessing your hardware…</p>;
   const hw = sys.hardware;
@@ -85,7 +92,7 @@ export default function Settings() {
         <h2>✅ Your installed models</h2>
         <div className="sub">Assessment of every chat model currently available in Ollama.</div>
         {a.installed.length
-          ? <AssessTable rows={a.installed} />
+          ? <AssessTable rows={a.installed} onPick={setCard} />
           : <p className="page-sub">No models installed yet — see the catalog below and the Setup page.</p>}
       </div>
 
@@ -110,6 +117,7 @@ export default function Settings() {
       </div>
 
       <ImageModels />
+      {card && <ModelCard name={card} onClose={() => setCard(null)} />}
     </>
   );
 }
