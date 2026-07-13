@@ -476,8 +476,34 @@ def _poll_job(job_id: str) -> tuple:
                   f"{FOOOCUS_DIR}/server.log")
 
 
-def _run_job(path: str, body: dict, meta: dict) -> dict:
-    """POST a generation job to `path`, poll it, save the images. Never raises."""
+def resume_job(backend_job_id: str, meta: dict) -> dict:
+    """Poll a Fooocus job we already submitted and save its images.
+
+    Fooocus keeps a job's result after it finishes, so if THIS app restarted
+    mid-generation (a rebuild, a crash) we can still collect the image instead
+    of losing 6 minutes of GPU work.
+    """
+    try:
+        if not backend_status()["running"]:
+            return {"ok": False, "images": [], "error": "image server is not running"}
+        items, err = _poll_job(backend_job_id)
+        if err:
+            return {"ok": False, "images": [], "error": err}
+        saved = _save_result_items(items)
+        if not saved:
+            return {"ok": False, "images": [], "error": "no images in the finished job"}
+        _write_meta(saved, meta or {})
+        return {"ok": True, "images": saved, "error": None}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "images": [], "error": f"{type(e).__name__}: {e}"}
+
+
+def _run_job(path: str, body: dict, meta: dict, on_job_id=None) -> dict:
+    """POST a generation job to `path`, poll it, save the images. Never raises.
+
+    `on_job_id(id)` is called as soon as Fooocus accepts the job, so the caller
+    can persist it and resume polling after a restart.
+    """
     try:
         if not backend_status()["running"]:
             return {"ok": False, "images": [],
@@ -486,6 +512,11 @@ def _run_job(path: str, body: dict, meta: dict) -> dict:
         r.raise_for_status()
         data = r.json()
         job_id = data.get("job_id") if isinstance(data, dict) else None
+        if job_id and on_job_id:
+            try:
+                on_job_id(job_id)
+            except Exception:  # noqa: BLE001 - persistence must not break the job
+                pass
 
         if not job_id:  # server answered synchronously despite async_process
             items = data if isinstance(data, list) else [data]
@@ -563,7 +594,8 @@ def _as_base64(source: str) -> str:
 def modify(source: str, mode: str = "vary_strong", prompt: str = "",
            negative: str = "", performance: str = None, loras: list = None,
            styles: list = None, weight: float = 0.6, stop: float = 0.5,
-           outpaint: list = None, aspect: str = "1152*896") -> dict:
+           outpaint: list = None, aspect: str = "1152*896",
+           on_job_id=None) -> dict:
     """Modify an EXISTING image (img2img). `source` is a data URL, raw base64,
     or the filename of an image already in the gallery.
 
@@ -615,12 +647,12 @@ def modify(source: str, mode: str = "vary_strong", prompt: str = "",
             "loras": [{"file_name": e["model_name"], "weight": e["weight"]}
                       for e in entries],
             "created": time.time()}
-    return _run_job(spec["endpoint"], body, meta)
+    return _run_job(spec["endpoint"], body, meta, on_job_id=on_job_id)
 
 
 def generate(prompt: str, negative: str = "", steps: int = None,
             aspect: str = "1152*896", performance: str = None,
-            loras: list = None, styles: list = None) -> dict:
+            loras: list = None, styles: list = None, on_job_id=None) -> dict:
     """POST a text-to-image job to Fooocus-API and poll it to completion.
 
     `performance` picks a Fooocus preset (see PERFORMANCE_MODES); the default is
@@ -679,6 +711,11 @@ def generate(prompt: str, negative: str = "", steps: int = None,
         r.raise_for_status()
         data = r.json()
         job_id = data.get("job_id") if isinstance(data, dict) else None
+        if job_id and on_job_id:
+            try:
+                on_job_id(job_id)
+            except Exception:  # noqa: BLE001 - persistence must not break the job
+                pass
 
         gen_meta = {"prompt": prompt, "negative": negative, "aspect": aspect,
                     "performance": perf,

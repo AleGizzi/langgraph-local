@@ -30,6 +30,11 @@ seeds.seed_if_empty()
 import catalog as _catalog  # noqa: E402
 _catalog.get_catalog(auto_refresh=True)
 
+# Recover image jobs a restart interrupted (resumes polling in-flight Fooocus
+# jobs so their images aren't lost) and start the queue worker.
+import imgqueue as _imgqueue  # noqa: E402
+_imgqueue.start()
+
 # Used by the SPA to detect that the server (and likely the bundle) changed
 # under an open tab, and offer a reload instead of running stale code.
 # (time imported at top)
@@ -341,6 +346,55 @@ def imagegen_modify():
         weight=body.get("weight", 0.6), stop=body.get("stop", 0.5),
         outpaint=body.get("outpaint"),
         aspect=body.get("aspect") or "1152*896"))
+
+
+@app.post("/api/imagegen/prompt-assist")
+def imagegen_prompt_assist():
+    """AI help for writing the image prompt (knows your LoRAs + past prompts)."""
+    import imgprompt
+    body = request.get_json(force=True) or {}
+    return jsonify(imgprompt.assist(
+        body.get("request", ""),
+        provider=body.get("provider"), model=body.get("model"),
+        current_prompt=body.get("current_prompt", ""),
+        feedback=body.get("feedback", "")))
+
+
+# ---------------- image job queue ----------------
+
+@app.get("/api/imagegen/queue")
+def imagegen_queue_get():
+    import imgqueue
+    return jsonify(imgqueue.status())
+
+
+@app.post("/api/imagegen/queue")
+def imagegen_queue_add():
+    """Queue one or more image jobs (they run one at a time, in order)."""
+    import imgqueue
+    body = request.get_json(force=True) or {}
+    kind = body.get("kind") or "generate"
+    params = body.get("params") or {}
+    if kind == "generate" and not (params.get("prompt") or "").strip():
+        abort(400, "params.prompt is required")
+    if kind == "modify" and not (params.get("image") or params.get("source")):
+        abort(400, "params.image is required")
+    res = imgqueue.add(kind, params, count=body.get("count", 1))
+    if not res.get("ok"):
+        abort(400, res.get("error"))
+    return jsonify(res)
+
+
+@app.post("/api/imagegen/queue/<job_id>/cancel")
+def imagegen_queue_cancel(job_id):
+    import imgqueue
+    return jsonify(imgqueue.cancel(job_id))
+
+
+@app.post("/api/imagegen/queue/clear")
+def imagegen_queue_clear():
+    import imgqueue
+    return jsonify(imgqueue.clear_finished())
 
 
 @app.get("/api/imagegen/gallery")

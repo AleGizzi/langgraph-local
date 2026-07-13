@@ -76,6 +76,13 @@ or "Lightning" preset (a few minutes per image); the 30–60 step presets can ta
 ~40 minutes. Style LoRAs can be searched and downloaded from Civitai in that
 panel (only SDXL-compatible ones work); each installed LoRA shows its description,
 a source link and a remove button. Persona sprites use it automatically.
+Use "✨ Help me write this" next to the prompt box to have a local model turn a
+plain description into a good prompt (it knows your LoRAs and your past prompts).
+Images are QUEUED: press Generate (optionally with ×N to queue a batch) and the
+jobs run one at a time while you keep working — the Queue section shows progress
+and lets you cancel jobs that haven't started. The Gallery has a Grid and a TABLE
+view; the table lists every image with the prompt used, and "♻️ Reuse" loads that
+prompt back into the form so you can refine it.
 TO MODIFY AN EXISTING IMAGE: open "🖼️ Modify an existing image" in that same
 panel — drop/browse a file or click one you already made, then pick what to do:
 Vary (subtle/strong) re-imagines it using your prompt, Upscale enlarges it,

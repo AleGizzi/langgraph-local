@@ -209,6 +209,8 @@ input, textarea, select { font: inherit; color: var(--text); }
 .status.done { background: var(--green-soft); color: var(--green); }
 .status.error { background: var(--red-soft); color: var(--red); }
 .status.revise { background: var(--amber-soft); color: var(--amber); }
+.status.queued { background: var(--bg); color: var(--text-3); border: 1px solid var(--border); }
+.status.cancelled { background: var(--bg); color: var(--text-3); text-decoration: line-through; }
 .spinner {
   width: 14px; height: 14px; border: 2px solid var(--accent-soft);
   border-top-color: var(--accent); border-radius: 50%;

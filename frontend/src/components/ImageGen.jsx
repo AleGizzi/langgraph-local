@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { api, toast } from "../lib/api.js";
+import { api, toast, fmtTime } from "../lib/api.js";
 
 export default function ImageGen() {
   const [status, setStatus] = useState(null);
@@ -33,6 +33,49 @@ export default function ImageGen() {
   const [dragOver, setDragOver] = useState(false);
   const loraPollRef = useRef(null);
 
+  // --- prompt assistant ---
+  const [assistText, setAssistText] = useState("");
+  const [assistRequest, setAssistRequest] = useState("");
+  const [assisting, setAssisting] = useState(false);
+  const [assistNotes, setAssistNotes] = useState("");
+  const [assistModel, setAssistModel] = useState("");
+  const [assistError, setAssistError] = useState(null);
+
+  // --- queue ---
+  const [queueCount, setQueueCount] = useState(1);
+  const [queueJobs, setQueueJobs] = useState([]);
+  const [enqueuing, setEnqueuing] = useState(false);
+  const queuePollRef = useRef(null);
+  const queueDoneRef = useRef(new Set());
+
+  // --- gallery view ---
+  const [galleryView, setGalleryView] = useState("grid");
+
+  const loadGallery = async () => {
+    try {
+      const g = await api("/imagegen/gallery");
+      setImages(g.images || []);
+      setImageMeta(g.meta || {});
+    } catch (e) {
+      console.error("Failed to load gallery:", e);
+    }
+  };
+
+  const loadQueue = async () => {
+    try {
+      const r = await api("/imagegen/queue");
+      const jobs = r.jobs || [];
+      const newlyDone = jobs.filter((j) => j.status === "done" && !queueDoneRef.current.has(j.id));
+      if (newlyDone.length) {
+        newlyDone.forEach((j) => queueDoneRef.current.add(j.id));
+        loadGallery();
+      }
+      setQueueJobs(jobs);
+    } catch (e) {
+      console.error("Failed to load queue:", e);
+    }
+  };
+
   // Load initial status and gallery
   useEffect(() => {
     const loadStatus = async () => {
@@ -46,20 +89,22 @@ export default function ImageGen() {
       }
     };
 
-    const loadGallery = async () => {
-      try {
-        const g = await api("/imagegen/gallery");
-        setImages(g.images || []);
-        setImageMeta(g.meta || {});
-      } catch (e) {
-        console.error("Failed to load gallery:", e);
-      }
-    };
-
     loadStatus();
     loadGallery();
     api("/imagegen/modes").then((d) => setModes(d.modes || [])).catch(() => {});
   }, []);
+
+  // Poll the job queue every 3s while anything is queued/running.
+  const queueActive = queueJobs.some((j) => j.status === "queued" || j.status === "running");
+  useEffect(() => {
+    loadQueue();
+    if (queueActive) {
+      queuePollRef.current = setInterval(loadQueue, 3000);
+      return () => clearInterval(queuePollRef.current);
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueActive]);
 
   // Poll install status while installing
   useEffect(() => {
@@ -141,21 +186,22 @@ export default function ImageGen() {
     try {
       setError(null);
       setGenerating(true);
-      const r = await api("/imagegen/modify", {
+      const r = await api("/imagegen/queue", {
         method: "POST",
         body: {
-          image: source.data ?? source.name,  // data URL, or a gallery filename
-          mode, prompt, negative, performance: speed,
-          weight: Number(cnWeight) || 0.6,
-          ...(loraPayload().length ? { loras: loraPayload() } : {}),
+          kind: "modify",
+          params: {
+            image: source.data ?? source.name,  // data URL, or a gallery filename
+            mode, prompt, negative, performance: speed,
+            weight: Number(cnWeight) || 0.6,
+            ...(loraPayload().length ? { loras: loraPayload() } : {}),
+          },
         },
       });
       if (r.error) { toast(r.error, true); setError(r.error); }
       else {
-        setImages((old) => [...(r.images || []), ...old]);
-        toast("Image modified");
-        // Reload metadata so the new image's caption/tooltip is populated.
-        api("/imagegen/gallery").then((g) => setImageMeta(g.meta || {})).catch(() => {});
+        toast("Queued — modified image will appear in the gallery when done");
+        loadQueue();
       }
     } catch (e) {
       toast(e.message, true);
@@ -173,32 +219,111 @@ export default function ImageGen() {
 
     try {
       setError(null);
-      setGenerating(true);
-      const loraPayload = Object.entries(selectedLoras).map(([file_name, weight]) => ({
-        file_name, weight: Number(weight) || 0.8,
-      }));
-      const r = await api("/imagegen/generate", {
+      setEnqueuing(true);
+      const n = Math.min(10, Math.max(1, Number(queueCount) || 1));
+      const r = await api("/imagegen/queue", {
         method: "POST",
-        body: { prompt, negative, aspect, performance: speed,
-                ...(loraPayload.length ? { loras: loraPayload } : {}) },
+        body: {
+          kind: "generate",
+          count: n,
+          params: { prompt, negative, aspect, performance: speed,
+                    ...(loraPayload().length ? { loras: loraPayload() } : {}) },
+        },
       });
 
       if (r.error) {
         toast(r.error, true);
         setError(r.error);
       } else {
-        const newImages = r.images || [];
-        setImages((old) => [...newImages, ...old]);
-        toast("Images generated successfully!");
-        setPrompt("");
-        setNegative("");
+        const ids = r.ids || [];
+        toast(`Queued ${ids.length} job${ids.length === 1 ? "" : "s"}`);
+        loadQueue();
       }
     } catch (e) {
       toast(e.message, true);
       setError(e.message);
     } finally {
-      setGenerating(false);
+      setEnqueuing(false);
     }
+  };
+
+  const handleCancelJob = async (id) => {
+    try {
+      const r = await api(`/imagegen/queue/${id}/cancel`, { method: "POST" });
+      if (r.error) toast(r.error, true);
+      else { toast("Job cancelled"); loadQueue(); }
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
+
+  const handleClearQueue = async () => {
+    try {
+      await api("/imagegen/queue/clear", { method: "POST" });
+      loadQueue();
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
+
+  const handleAssist = async () => {
+    if (!assistText.trim()) return;
+    try {
+      setAssisting(true);
+      setAssistError(null);
+      const refining = !!assistRequest;
+      const body = refining
+        ? { request: assistRequest, current_prompt: prompt, feedback: assistText }
+        : { request: assistText };
+      const r = await api("/imagegen/prompt-assist", { method: "POST", body });
+      if (!r.ok) {
+        toast(r.error || "Could not draft a prompt", true);
+        setAssistError(r.error || "failed");
+        return;
+      }
+      setPrompt(r.prompt || "");
+      setNegative(r.negative || "");
+      if (!refining) setAssistRequest(assistText);
+      setAssistText("");
+      setAssistNotes(r.notes || "");
+      setAssistModel(r.model || "");
+      const newLoras = Array.isArray(r.loras) ? r.loras : [];
+      if (newLoras.length) {
+        setSelectedLoras((sel) => {
+          const next = { ...sel };
+          newLoras.forEach((f) => {
+            if (f && !(f in next)) next[f] = 0.8;
+          });
+          return next;
+        });
+      }
+      toast("Prompt drafted");
+    } catch (e) {
+      toast(e.message, true);
+      setAssistError(e.message);
+    } finally {
+      setAssisting(false);
+    }
+  };
+
+  const handleReuse = (img) => {
+    const meta = imageMeta[img] || {};
+    setPrompt(meta.prompt || "");
+    setNegative(meta.negative || "");
+    if (Array.isArray(meta.loras) && meta.loras.length) {
+      const next = {};
+      meta.loras.forEach((l) => {
+        const name = (l && l.file_name) || (typeof l === "string" ? l : null);
+        if (name) next[name] = Number(l?.weight) || 0.8;
+      });
+      setSelectedLoras(next);
+    }
+    toast("Prompt loaded — tweak and generate");
+  };
+
+  const handleModifyThis = (img) => {
+    setSource({ name: img, label: img });
+    setModifyOpen(true);
   };
 
   const handleStop = async () => {
@@ -376,12 +501,11 @@ export default function ImageGen() {
 
       {running && (
         <div>
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}>
             <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>Prompt</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              disabled={generating}
               placeholder="Describe the image you want to generate…"
               style={{
                 width: "100%",
@@ -392,9 +516,44 @@ export default function ImageGen() {
                 fontFamily: "inherit",
                 fontSize: 13,
                 resize: "vertical",
-                opacity: generating ? 0.6 : 1,
               }}
             />
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                type="text"
+                value={assistText}
+                onChange={(e) => setAssistText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !assisting && handleAssist()}
+                disabled={assisting}
+                placeholder={assistRequest
+                  ? "What would you like to change? (optional feedback)…"
+                  : 'Plain description, e.g. "a tiny wizard frog, gameboy style"…'}
+                style={{
+                  flex: 1, padding: "6px 8px", border: "1px solid var(--border)",
+                  borderRadius: 6, fontSize: 12.5, opacity: assisting ? 0.6 : 1,
+                }}
+              />
+              <button className="btn sm" onClick={handleAssist} disabled={assisting || !assistText.trim()}>
+                {assisting ? "Thinking…" : assistRequest ? "🔄 Refine" : "✨ Help me write this"}
+              </button>
+              {assistRequest && !assisting && (
+                <button className="btn sm ghost" style={{ padding: "5px 8px" }}
+                  onClick={() => { setAssistRequest(""); setAssistText(""); setAssistNotes(""); setAssistModel(""); }}>
+                  start over
+                </button>
+              )}
+            </div>
+            {(assistNotes || assistModel) && (
+              <div className="param-hint" style={{ marginTop: 4 }}>
+                {assistNotes}{assistNotes && assistModel ? " — " : ""}{assistModel ? `via ${assistModel}` : ""}
+              </div>
+            )}
+            {assistError && (
+              <div className="param-hint" style={{ color: "var(--red)", marginTop: 4 }}>Error: {assistError}</div>
+            )}
           </div>
 
           <div style={{ marginBottom: 16 }}>
@@ -403,7 +562,6 @@ export default function ImageGen() {
               type="text"
               value={negative}
               onChange={(e) => setNegative(e.target.value)}
-              disabled={generating}
               placeholder="What to avoid in the image…"
               style={{
                 width: "100%",
@@ -411,25 +569,22 @@ export default function ImageGen() {
                 border: "1px solid var(--border)",
                 borderRadius: 6,
                 fontSize: 13,
-                opacity: generating ? 0.6 : 1,
               }}
             />
           </div>
 
-          <div style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end" }}>
-            <div style={{ flex: 1 }}>
+          <div style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 160 }}>
               <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>Aspect ratio</label>
               <select
                 value={aspect}
                 onChange={(e) => setAspect(e.target.value)}
-                disabled={generating}
                 style={{
                   width: "100%",
                   padding: "8px 6px",
                   border: "1px solid var(--border)",
                   borderRadius: 6,
                   fontSize: 13,
-                  opacity: generating ? 0.6 : 1,
                 }}
               >
                 <option value="1152*896">Landscape (1152x896)</option>
@@ -437,19 +592,17 @@ export default function ImageGen() {
                 <option value="1024*1024">Square (1024x1024)</option>
               </select>
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 160 }}>
               <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>Speed / quality</label>
               <select
                 value={speed}
                 onChange={(e) => setSpeed(e.target.value)}
-                disabled={generating}
                 style={{
                   width: "100%",
                   padding: "8px 6px",
                   border: "1px solid var(--border)",
                   borderRadius: 6,
                   fontSize: 13,
-                  opacity: generating ? 0.6 : 1,
                 }}
               >
                 <option value="Extreme Speed">Extreme Speed (~8 steps, fastest)</option>
@@ -458,14 +611,23 @@ export default function ImageGen() {
                 <option value="Quality">Quality (60 steps, slowest)</option>
               </select>
             </div>
+            <div>
+              <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }} title="How many jobs to queue">×N</label>
+              <input type="number" min={1} max={10} value={queueCount}
+                onChange={(e) => setQueueCount(e.target.value)}
+                style={{
+                  width: 52, padding: "8px 6px", border: "1px solid var(--border)",
+                  borderRadius: 6, fontSize: 13, textAlign: "center",
+                }} />
+            </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button
                 className="btn primary"
                 onClick={handleGenerate}
-                disabled={generating}
-                style={{ opacity: generating ? 0.7 : 1, minWidth: 120 }}
+                disabled={enqueuing}
+                style={{ opacity: enqueuing ? 0.7 : 1, minWidth: 120 }}
               >
-                {generating ? "Generating…" : "✨ Generate"}
+                {enqueuing ? "Queuing…" : "✨ Generate"}
               </button>
               <button
                 className="btn sm"
@@ -478,9 +640,9 @@ export default function ImageGen() {
           </div>
 
           <div className="page-sub" style={{ marginBottom: 12 }}>
-            {generating
-              ? "Generating… on a low-VRAM GPU this takes minutes even in fast mode — leave it running."
-              : "Tip: on a 4 GB GPU use Extreme Speed / Lightning; the 30-60 step modes can take ~40 min per image."}
+            Jobs run one at a time on the GPU — queue as many as you like and keep tweaking
+            the form while they process. On a 4 GB GPU use Extreme Speed / Lightning;
+            the 30-60 step modes can take ~40 min per image.
           </div>
 
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginBottom: 10 }}>
@@ -563,13 +725,13 @@ export default function ImageGen() {
                   )}
                   <button className="btn primary" disabled={generating || !source}
                     onClick={handleModify}>
-                    {generating ? "Working…" : "🖼️ Modify"}
+                    {generating ? "Queuing…" : "🖼️ Modify"}
                   </button>
                 </div>
                 <div className="param-hint" style={{ marginTop: 6 }}>
                   Uses the prompt box above for the change you want (except pure upscales).
-                  Vary/restyle re-diffuse the image — expect a few minutes on this GPU;
-                  “Upscale 2× (fast)” is the quick one.
+                  Queued like generate jobs — vary/restyle re-diffuse the image and take a
+                  few minutes on this GPU; “Upscale 2× (fast)” is the quick one.
                 </div>
               </div>
             )}
@@ -745,47 +907,156 @@ export default function ImageGen() {
         </div>
       )}
 
+      {running && (
+        <div style={{ marginTop: 20, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <h3 style={{ margin: 0 }}>
+              Queue
+              {queueActive && (
+                <span className="param-hint" style={{ marginLeft: 8, fontWeight: 400 }}>
+                  {queueJobs.filter((j) => j.status === "running").length} running ·{" "}
+                  {queueJobs.filter((j) => j.status === "queued").length} queued
+                </span>
+              )}
+            </h3>
+            <button className="btn sm ghost" onClick={handleClearQueue}>Clear finished</button>
+          </div>
+          {queueJobs.length === 0 ? (
+            <div className="param-hint">No jobs queued yet — Generate or Modify adds one here.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {queueJobs.map((j) => (
+                <div key={j.id} style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "7px 10px",
+                  border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface-2)",
+                }}>
+                  <span className={"status " + (j.status || "queued")}>{j.status || "queued"}</span>
+                  <span style={{
+                    flex: 1, minWidth: 0, fontSize: 12.5,
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                  }} title={j.prompt || j.error || ""}>
+                    {j.kind === "modify" ? `🖼️ ${j.mode || "modify"}${j.prompt ? " — " + j.prompt : ""}` : (j.prompt || "—")}
+                  </span>
+                  {j.error && (
+                    <span className="param-hint" style={{ color: "var(--red)", flexShrink: 0, maxWidth: 220,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={j.error}>
+                      {j.error}
+                    </span>
+                  )}
+                  {j.status === "queued" && (
+                    <button className="icon-btn" title="Cancel" onClick={() => handleCancelJob(j.id)}>✕</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {images.length > 0 && (
         <div style={{ marginTop: 20 }}>
-          <h3 style={{ marginBottom: 12 }}>Gallery</h3>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-              gap: 12,
-            }}
-          >
-            {images.map((img, idx) => (
-              <figure key={idx} style={{ margin: 0 }}>
-                <img
-                  src={`/api/imagegen/images/${img}`}
-                  alt={imageMeta[img]?.prompt || `Generated ${idx}`}
-                  title={imageMeta[img]?.prompt
-                    ? `${imageMeta[img].prompt}\n— ${imageMeta[img].performance || ""}`
-                      + (imageMeta[img].loras?.length
-                        ? ` · LoRA: ${imageMeta[img].loras.map((l) => l.file_name).join(", ")}` : "")
-                    : "prompt unknown (generated before tracking)"}
-                  onClick={() => window.open(`/api/imagegen/images/${img}`, "_blank")}
-                  style={{
-                    width: "100%",
-                    height: 200,
-                    objectFit: "cover",
-                    borderRadius: 8,
-                    cursor: "pointer",
-                    transition: "transform 0.2s",
-                  }}
-                  onMouseEnter={(e) => (e.target.style.transform = "scale(1.05)")}
-                  onMouseLeave={(e) => (e.target.style.transform = "scale(1)")}
-                />
-                {imageMeta[img]?.prompt && (
-                  <figcaption className="param-hint" style={{
-                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {imageMeta[img].prompt}
-                  </figcaption>
-                )}
-              </figure>
-            ))}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <h3 style={{ margin: 0 }}>Gallery</h3>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button className={"btn sm" + (galleryView === "grid" ? " primary" : " ghost")}
+                onClick={() => setGalleryView("grid")}>▦ Grid</button>
+              <button className={"btn sm" + (galleryView === "table" ? " primary" : " ghost")}
+                onClick={() => setGalleryView("table")}>☰ Table</button>
+            </div>
           </div>
+
+          {galleryView === "table" ? (
+            <div style={{ overflowX: "auto" }}>
+              <table className="assess">
+                <thead>
+                  <tr>
+                    <th></th><th>Prompt</th><th>Negative</th><th>Mode / speed</th>
+                    <th>LoRAs</th><th>Date</th><th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {images.map((img) => {
+                    const meta = imageMeta[img] || {};
+                    const loras = Array.isArray(meta.loras) ? meta.loras : [];
+                    return (
+                      <tr key={img}>
+                        <td>
+                          <img src={`/api/imagegen/images/${img}`} alt="" className="img-pick"
+                            title={meta.prompt || img}
+                            onClick={() => window.open(`/api/imagegen/images/${img}`, "_blank")} />
+                        </td>
+                        <td style={{ maxWidth: 260 }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                            title={meta.prompt || ""}>
+                            {meta.prompt || "—"}
+                          </div>
+                        </td>
+                        <td style={{ maxWidth: 180 }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                            title={meta.negative || ""}>
+                            {meta.negative || "—"}
+                          </div>
+                        </td>
+                        <td className="mono">{meta.mode_label || meta.mode || meta.performance || "—"}</td>
+                        <td>
+                          {loras.length
+                            ? loras.map((l) => (l && l.file_name) || l).filter(Boolean).join(", ")
+                            : "—"}
+                        </td>
+                        <td>{meta.created ? fmtTime(meta.created) : "—"}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          <button className="btn sm ghost" style={{ padding: "2px 7px", marginRight: 4 }}
+                            disabled={!meta.prompt} title={!meta.prompt ? "No prompt recorded for this image" : ""}
+                            onClick={() => handleReuse(img)}>♻️ Reuse</button>
+                          <button className="btn sm ghost" style={{ padding: "2px 7px" }}
+                            onClick={() => handleModifyThis(img)}>🖼️ Modify</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                gap: 12,
+              }}
+            >
+              {images.map((img, idx) => (
+                <figure key={idx} style={{ margin: 0 }}>
+                  <img
+                    src={`/api/imagegen/images/${img}`}
+                    alt={imageMeta[img]?.prompt || `Generated ${idx}`}
+                    title={imageMeta[img]?.prompt
+                      ? `${imageMeta[img].prompt}\n— ${imageMeta[img].performance || ""}`
+                        + (imageMeta[img].loras?.length
+                          ? ` · LoRA: ${imageMeta[img].loras.map((l) => l.file_name).join(", ")}` : "")
+                      : "prompt unknown (generated before tracking)"}
+                    onClick={() => window.open(`/api/imagegen/images/${img}`, "_blank")}
+                    style={{
+                      width: "100%",
+                      height: 200,
+                      objectFit: "cover",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      transition: "transform 0.2s",
+                    }}
+                    onMouseEnter={(e) => (e.target.style.transform = "scale(1.05)")}
+                    onMouseLeave={(e) => (e.target.style.transform = "scale(1)")}
+                  />
+                  {imageMeta[img]?.prompt && (
+                    <figcaption className="param-hint" style={{
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {imageMeta[img].prompt}
+                    </figcaption>
+                  )}
+                </figure>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -68,6 +68,18 @@ CREATE TABLE IF NOT EXISTS chats (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS image_jobs (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    params TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'queued',
+    images TEXT NOT NULL DEFAULT '[]',
+    error TEXT,
+    backend_job_id TEXT,
+    created REAL NOT NULL,
+    started REAL,
+    finished REAL
+);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
@@ -289,6 +301,50 @@ def update_chat(cid: int, d: dict):
 def delete_chat(cid: int):
     with _conn() as c:
         c.execute("DELETE FROM chats WHERE id=?", (cid,))
+
+
+# ---------------- image jobs (durable queue) ----------------
+
+def _image_job_row(r) -> dict:
+    return {"id": r["id"], "kind": r["kind"], "params": json.loads(r["params"]),
+            "status": r["status"], "images": json.loads(r["images"]),
+            "error": r["error"], "backend_job_id": r["backend_job_id"],
+            "created": r["created"], "started": r["started"],
+            "finished": r["finished"]}
+
+
+def list_image_jobs(limit: int = 80) -> list:
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM image_jobs ORDER BY created DESC LIMIT ?",
+                         (limit,)).fetchall()
+    return [_image_job_row(r) for r in rows]
+
+
+def create_image_job(job_id: str, kind: str, params: dict):
+    with _conn() as c:
+        c.execute("INSERT INTO image_jobs (id, kind, params, status, created)"
+                  " VALUES (?,?,?, 'queued', ?)",
+                  (job_id, kind, json.dumps(params), time.time()))
+
+
+def update_image_job(job_id: str, **fields):
+    if not fields:
+        return
+    cols, vals = [], []
+    for k, v in fields.items():
+        if k in ("params", "images"):
+            v = json.dumps(v)
+        cols.append(f"{k}=?")
+        vals.append(v)
+    vals.append(job_id)
+    with _conn() as c:
+        c.execute(f"UPDATE image_jobs SET {', '.join(cols)} WHERE id=?", vals)
+
+
+def delete_finished_image_jobs():
+    with _conn() as c:
+        c.execute("DELETE FROM image_jobs WHERE status IN "
+                  "('done','error','cancelled')")
 
 
 # ---------------- skills ----------------

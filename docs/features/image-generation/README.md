@@ -196,8 +196,49 @@ the gallery, choose a mode, and go.
 `input_mask`, but it needs a mask-painting canvas in the UI). Outpaint covers
 the maskless half of that endpoint.
 
+### Prompt assistant, job queue, and the prompt library
+
+**Prompt assistant** (`imgprompt.py`, `POST /api/imagegen/prompt-assist`)
+turns a plain description into an SDXL prompt + negative. Its system prompt
+embeds prompt-craft rules, the LoRAs you have installed (with trigger words),
+and **prompts that already produced images here** (read back from the knowledge
+vault, falling back to image sidecars) — so it improves as you use the app.
+Model: a small non-reasoning local model (same picker as `help.py`).
+
+> LoRA selection is done **in code** (`imgprompt.suggest_loras`), not by the
+> model: a 4B model wouldn't reliably pick the obviously-matching LoRA even when
+> instructed to. The matcher needs two overlapping words, or one high-signal
+> style word (`gba`, `pixel`, `pokemon`…), so a LoRA whose description merely
+> contains "portrait" doesn't hijack a photorealistic portrait request.
+
+**Durable job queue** (`imgqueue.py`) — jobs are persisted in the `image_jobs`
+table and run **one at a time** (one GPU; two would just thrash):
+
+- `POST /api/imagegen/queue {kind, count, params}` — queue up to 10 at once
+- `GET /api/imagegen/queue` → `{jobs, pending, running}`
+- `POST /api/imagegen/queue/<id>/cancel` — only while `queued`; a running job
+  cannot be interrupted (Fooocus has no cancel API)
+- `POST /api/imagegen/queue/clear` — drop finished jobs
+
+**Restart-safe.** The Fooocus job id is stored the moment Fooocus accepts the
+work, so `imgqueue.start()` (called at app startup) *resumes polling* an
+in-flight job and still collects its image. Before this, restarting the app —
+which happens on every rebuild — silently threw away finished GPU work: the
+image was generated but never saved.
+
+**Prompt library.** Every successful job is archived as a knowledge note under
+`image-prompts/`, which is both the history the assistant learns from and the
+data behind the gallery's **table view** (thumbnail, prompt, negative, mode,
+LoRAs, date) with **♻️ Reuse** to load an old prompt back into the form.
+
 ## Gotchas
 
+- **Never make the image queue in-memory again.** The app restarts on every
+  frontend rebuild; a 6-minute job must survive that. Jobs live in SQLite and
+  in-flight Fooocus jobs are resumed by `imgqueue.start()`.
+- **The queue must stay serial.** `_next_queued()` refuses to start a job while
+  any other is `running` — including a *resumed* one, which runs in its own
+  thread after a restart (that omission briefly let two jobs run at once).
 - **Vary/restyle re-diffuse at higher resolution and are SLOW** on a small GPU
   (~6 min for 8 steps on the 4GB P600 — slower than a plain generation).
   `upscale_fast` is the only quick mode. Requests are long-lived: don't hold a
