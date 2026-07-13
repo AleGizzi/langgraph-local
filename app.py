@@ -317,6 +317,32 @@ def imagegen_generate():
         performance=body.get("performance"), loras=body.get("loras")))
 
 
+@app.get("/api/imagegen/modes")
+def imagegen_modes():
+    """The ways an existing image can be modified (for the UI's mode picker)."""
+    import imagegen
+    return jsonify({"modes": [{"key": k, "label": v["label"],
+                               "needs_prompt": "cn_type" in v or "Vary" in v.get("uov_method", "")}
+                              for k, v in imagegen.MODIFY_MODES.items()]})
+
+
+@app.post("/api/imagegen/modify")
+def imagegen_modify():
+    """Modify an existing image (img2img): vary, upscale, restyle, outpaint."""
+    import imagegen
+    body = request.get_json(force=True) or {}
+    source = body.get("image") or body.get("source") or ""
+    if not source:
+        abort(400, "image is required (data URL, base64, or a gallery filename)")
+    return jsonify(imagegen.modify(
+        source, mode=body.get("mode") or "vary_strong",
+        prompt=body.get("prompt", ""), negative=body.get("negative", ""),
+        performance=body.get("performance"), loras=body.get("loras"),
+        weight=body.get("weight", 0.6), stop=body.get("stop", 0.5),
+        outpaint=body.get("outpaint"),
+        aspect=body.get("aspect") or "1152*896"))
+
+
 @app.get("/api/imagegen/gallery")
 def imagegen_gallery():
     import imagegen

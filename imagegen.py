@@ -435,6 +435,189 @@ def image_meta(name: str) -> dict:
         return {}
 
 
+def _lora_entries(loras: list) -> list:
+    out = []
+    for item in loras or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("file_name") or "").strip()
+        if not name:
+            continue
+        try:
+            weight = float(item.get("weight", 0.8))
+        except (TypeError, ValueError):
+            weight = 0.8
+        out.append({"enabled": True, "model_name": name,
+                    "weight": max(0.0, min(2.0, weight))})
+    return out
+
+
+def _poll_job(job_id: str) -> tuple:
+    """Poll a Fooocus-API job to completion. Returns (result_items, error)."""
+    deadline = time.time() + GEN_TIMEOUT
+    while time.time() < deadline:
+        time.sleep(2)
+        jr = requests.get(f"{FOOOCUS_URL}/v1/generation/query-job",
+                          params={"job_id": job_id, "require_step_preview": False},
+                          timeout=(10, 30))
+        jr.raise_for_status()
+        jd = jr.json()
+        status_str = str(jd.get("job_status", "")).lower()
+        stage_str = str(jd.get("job_stage", "")).lower()
+        if "error" in status_str or "fail" in status_str \
+                or "error" in stage_str or "fail" in stage_str:
+            return None, (f"generation failed: "
+                          f"{jd.get('job_stage') or jd.get('job_status')}")
+        if status_str in ("finished", "success") or stage_str in ("finished", "success") \
+                or jd.get("job_result"):
+            return jd.get("job_result"), None
+    return None, (f"timed out after {GEN_TIMEOUT}s — a low-VRAM GPU can be very "
+                  f"slow; use a faster performance mode or check "
+                  f"{FOOOCUS_DIR}/server.log")
+
+
+def _run_job(path: str, body: dict, meta: dict) -> dict:
+    """POST a generation job to `path`, poll it, save the images. Never raises."""
+    try:
+        if not backend_status()["running"]:
+            return {"ok": False, "images": [],
+                    "error": "Fooocus-API server is not running — start it first"}
+        r = requests.post(f"{FOOOCUS_URL}{path}", json=body, timeout=(10, 60))
+        r.raise_for_status()
+        data = r.json()
+        job_id = data.get("job_id") if isinstance(data, dict) else None
+
+        if not job_id:  # server answered synchronously despite async_process
+            items = data if isinstance(data, list) else [data]
+            saved = _save_result_items(items)
+            if saved:
+                _write_meta(saved, meta)
+                return {"ok": True, "images": saved, "error": None}
+            return {"ok": False, "images": [],
+                    "error": "Fooocus-API returned neither a job_id nor an image"}
+
+        items, err = _poll_job(job_id)
+        if err:
+            return {"ok": False, "images": [], "error": err}
+        saved = _save_result_items(items)
+        if not saved:
+            return {"ok": False, "images": [],
+                    "error": "job finished but no images were returned"}
+        _write_meta(saved, meta)
+        return {"ok": True, "images": saved, "error": None}
+    except requests.RequestException as e:
+        return {"ok": False, "images": [], "error": f"Fooocus-API request failed: {e}"}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "images": [], "error": f"{type(e).__name__}: {e}"}
+
+
+# How an existing image can be modified. Each maps to a Fooocus-API v2 endpoint
+# (they take the source image as base64, which is why we use v2 here).
+#   vary_*     : re-imagine the image, guided by your prompt (classic img2img)
+#   upscale_*  : enlarge (prompt is largely ignored)
+#   style      : ImagePrompt — borrow the image's look/content for a new image
+#   structure  : PyraCanny — keep its edges/composition, restyle via prompt
+#   depth      : CPDS — keep its depth/shape, restyle via prompt
+#   face       : FaceSwap — carry a face across
+#   outpaint   : extend the image outward (no mask needed)
+MODIFY_MODES = {
+    "vary_subtle":   {"endpoint": "/v2/generation/image-upscale-vary",
+                      "uov_method": "Vary (Subtle)",
+                      "label": "Vary (subtle) — small changes, same picture"},
+    "vary_strong":   {"endpoint": "/v2/generation/image-upscale-vary",
+                      "uov_method": "Vary (Strong)",
+                      "label": "Vary (strong) — reinterpret it with your prompt"},
+    "upscale_1_5x":  {"endpoint": "/v2/generation/image-upscale-vary",
+                      "uov_method": "Upscale (1.5x)", "label": "Upscale 1.5×"},
+    "upscale_2x":    {"endpoint": "/v2/generation/image-upscale-vary",
+                      "uov_method": "Upscale (2x)", "label": "Upscale 2×"},
+    "upscale_fast":  {"endpoint": "/v2/generation/image-upscale-vary",
+                      "uov_method": "Upscale (Fast 2x)",
+                      "label": "Upscale 2× (fast, no re-diffusion)"},
+    "style":         {"endpoint": "/v2/generation/image-prompt", "cn_type": "ImagePrompt",
+                      "label": "Use as style/content reference"},
+    "structure":     {"endpoint": "/v2/generation/image-prompt", "cn_type": "PyraCanny",
+                      "label": "Keep its composition, restyle with prompt"},
+    "depth":         {"endpoint": "/v2/generation/image-prompt", "cn_type": "CPDS",
+                      "label": "Keep its shapes/depth, restyle with prompt"},
+    "face":          {"endpoint": "/v2/generation/image-prompt", "cn_type": "FaceSwap",
+                      "label": "Face swap"},
+    "outpaint":      {"endpoint": "/v2/generation/image-inpaint-outpaint",
+                      "label": "Extend the image outward"},
+}
+
+
+def _as_base64(source: str) -> str:
+    """Accept a data: URL, a raw base64 string, or a gallery image filename."""
+    s = (source or "").strip()
+    if not s:
+        raise ValueError("an image is required")
+    if s.startswith("data:"):
+        return s.split(",", 1)[1] if "," in s else ""
+    if len(s) < 512 and not s.endswith("="):  # looks like a filename
+        with open(_safe_images_path(s), "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii")
+    return s
+
+
+def modify(source: str, mode: str = "vary_strong", prompt: str = "",
+           negative: str = "", performance: str = None, loras: list = None,
+           styles: list = None, weight: float = 0.6, stop: float = 0.5,
+           outpaint: list = None, aspect: str = "1152*896") -> dict:
+    """Modify an EXISTING image (img2img). `source` is a data URL, raw base64,
+    or the filename of an image already in the gallery.
+
+    See MODIFY_MODES for what each mode does. Never raises.
+    """
+    spec = MODIFY_MODES.get(mode)
+    if not spec:
+        return {"ok": False, "images": [],
+                "error": f"unknown mode '{mode}' (expected one of "
+                         f"{', '.join(MODIFY_MODES)})"}
+    try:
+        img_b64 = _as_base64(source)
+    except (OSError, ValueError) as e:
+        return {"ok": False, "images": [], "error": f"could not read the image: {e}"}
+    if not img_b64:
+        return {"ok": False, "images": [], "error": "an image is required"}
+
+    perf = performance if performance in PERFORMANCE_MODES else DEFAULT_PERFORMANCE
+    body = {
+        "prompt": prompt, "negative_prompt": negative,
+        "performance_selection": perf,
+        "image_number": 1, "async_process": True,
+    }
+    if styles is not None:
+        body["style_selections"] = [str(s) for s in styles]
+    entries = _lora_entries(loras)
+    if entries:
+        body["loras"] = entries
+
+    if "uov_method" in spec:                       # vary / upscale
+        body["input_image"] = img_b64
+        body["uov_method"] = spec["uov_method"]
+    elif "cn_type" in spec:                        # image prompt / controlnet
+        body["image_prompts"] = [{
+            "cn_img": img_b64, "cn_type": spec["cn_type"],
+            "cn_weight": max(0.0, min(2.0, float(weight or 0.6))),
+            "cn_stop": max(0.0, min(1.0, float(stop or 0.5))),
+        }]
+        body["aspect_ratios_selection"] = aspect
+    else:                                          # outpaint
+        body["input_image"] = img_b64
+        dirs = [d for d in (outpaint or ["Left", "Right"])
+                if d in ("Left", "Right", "Top", "Bottom")]
+        body["outpaint_selections"] = dirs or ["Left", "Right"]
+
+    meta = {"prompt": prompt, "negative": negative, "performance": perf,
+            "mode": mode, "mode_label": spec["label"],
+            "source": source if len(source or "") < 300 else "(uploaded image)",
+            "loras": [{"file_name": e["model_name"], "weight": e["weight"]}
+                      for e in entries],
+            "created": time.time()}
+    return _run_job(spec["endpoint"], body, meta)
+
+
 def generate(prompt: str, negative: str = "", steps: int = None,
             aspect: str = "1152*896", performance: str = None,
             loras: list = None, styles: list = None) -> dict:

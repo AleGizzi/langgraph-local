@@ -168,8 +168,40 @@ negative=negative)` with **default** aspect ratio and performance mode (no
   are sanitized to a basename and confined to `LORAS_DIR` (a `../` traversal
   attempt 404s and touches nothing).
 
+### Modifying an existing image (img2img)
+
+`GET /api/imagegen/modes` lists what can be done; `POST /api/imagegen/modify`
+does it. Body: `{image, mode, prompt, negative, performance, loras, weight,
+outpaint, aspect}` where **`image`** is a data URL, raw base64, or the filename
+of an image already in the gallery. Response is the same `{ok, images, error}`
+shape as `/generate`.
+
+Modes map to Fooocus-API's **v2** JSON endpoints (v2 is used here because it
+takes the source image as base64, unlike v1's multipart):
+
+| mode | endpoint | what it does |
+|------|----------|--------------|
+| `vary_subtle` / `vary_strong` | `/v2/generation/image-upscale-vary` | re-diffuse the image, guided by your prompt (classic img2img) |
+| `upscale_1_5x` / `upscale_2x` / `upscale_fast` | same | enlarge; `upscale_fast` skips re-diffusion and is the quick one |
+| `style` / `structure` / `depth` / `face` | `/v2/generation/image-prompt` | ControlNet: `ImagePrompt` (borrow look/content), `PyraCanny` (keep composition), `CPDS` (keep shapes/depth), `FaceSwap`. `weight`/`stop` control influence |
+| `outpaint` | `/v2/generation/image-inpaint-outpaint` | extend the image outward (`outpaint: ["Left","Right","Top","Bottom"]`) — no mask needed |
+
+`imagegen._run_job()` is shared by `generate()` and `modify()` (post → poll →
+save → write the metadata sidecar), so modified images get the same prompt
+tracking, LoRA support and speed presets. UI: the "🖼️ Modify an existing image"
+panel in `ImageGen.jsx` — drop/browse a file **or** click any image already in
+the gallery, choose a mode, and go.
+
+**Not implemented:** inpainting with a hand-painted mask (the endpoint supports
+`input_mask`, but it needs a mask-painting canvas in the UI). Outpaint covers
+the maskless half of that endpoint.
+
 ## Gotchas
 
+- **Vary/restyle re-diffuse at higher resolution and are SLOW** on a small GPU
+  (~6 min for 8 steps on the 4GB P600 — slower than a plain generation).
+  `upscale_fast` is the only quick mode. Requests are long-lived: don't hold a
+  short HTTP timeout on `/api/imagegen/modify`.
 - **The old `docs/image-generation.md` described a different, incomplete
   implementation** — it said "`imagegen.py` is currently in development" and
   gave manual install/usage instructions that don't match the real, working

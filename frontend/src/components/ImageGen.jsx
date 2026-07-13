@@ -23,6 +23,14 @@ export default function ImageGen() {
   const [loraDownloads, setLoraDownloads] = useState({});
   const [selectedLoras, setSelectedLoras] = useState({}); // file_name -> weight
   const [identifying, setIdentifying] = useState(null);
+
+  // --- modify an existing image ---
+  const [modifyOpen, setModifyOpen] = useState(false);
+  const [modes, setModes] = useState([]);
+  const [mode, setMode] = useState("vary_strong");
+  const [source, setSource] = useState(null); // {data|name, label}
+  const [cnWeight, setCnWeight] = useState(0.6);
+  const [dragOver, setDragOver] = useState(false);
   const loraPollRef = useRef(null);
 
   // Load initial status and gallery
@@ -50,6 +58,7 @@ export default function ImageGen() {
 
     loadStatus();
     loadGallery();
+    api("/imagegen/modes").then((d) => setModes(d.modes || [])).catch(() => {});
   }, []);
 
   // Poll install status while installing
@@ -105,6 +114,54 @@ export default function ImageGen() {
     } catch (e) {
       toast(e.message, true);
       setError(e.message);
+    }
+  };
+
+  // --- modify an existing image (img2img) ---
+
+  const loraPayload = () => Object.entries(selectedLoras).map(([file_name, weight]) => ({
+    file_name, weight: Number(weight) || 0.8,
+  }));
+
+  const pickFile = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast("Not an image file", true); return; }
+    const reader = new FileReader();
+    reader.onload = () => setSource({ data: reader.result, label: file.name });
+    reader.readAsDataURL(file);
+  };
+
+  const handleModify = async () => {
+    if (!source) { toast("Choose an image to modify first", true); return; }
+    const spec = modes.find((m) => m.key === mode);
+    if (spec?.needs_prompt && !prompt.trim()) {
+      toast("This mode uses your prompt — describe the change you want", true);
+      return;
+    }
+    try {
+      setError(null);
+      setGenerating(true);
+      const r = await api("/imagegen/modify", {
+        method: "POST",
+        body: {
+          image: source.data ?? source.name,  // data URL, or a gallery filename
+          mode, prompt, negative, performance: speed,
+          weight: Number(cnWeight) || 0.6,
+          ...(loraPayload().length ? { loras: loraPayload() } : {}),
+        },
+      });
+      if (r.error) { toast(r.error, true); setError(r.error); }
+      else {
+        setImages((old) => [...(r.images || []), ...old]);
+        toast("Image modified");
+        // Reload metadata so the new image's caption/tooltip is populated.
+        api("/imagegen/gallery").then((g) => setImageMeta(g.meta || {})).catch(() => {});
+      }
+    } catch (e) {
+      toast(e.message, true);
+      setError(e.message);
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -424,6 +481,98 @@ export default function ImageGen() {
             {generating
               ? "Generating… on a low-VRAM GPU this takes minutes even in fast mode — leave it running."
               : "Tip: on a 4 GB GPU use Extreme Speed / Lightning; the 30-60 step modes can take ~40 min per image."}
+          </div>
+
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginBottom: 10 }}>
+            <button className="btn sm ghost" style={{ padding: "4px 8px" }}
+              onClick={() => setModifyOpen((o) => !o)}>
+              {modifyOpen ? "▾" : "▸"} 🖼️ Modify an existing image
+              {source ? ` (${source.label})` : ""}
+            </button>
+
+            {modifyOpen && (
+              <div style={{ marginTop: 10 }}>
+                <div className={"img-drop" + (dragOver ? " over" : "")}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault(); setDragOver(false);
+                    pickFile(e.dataTransfer.files?.[0]);
+                  }}>
+                  {source ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <img src={source.data || `/api/imagegen/images/${source.name}`}
+                        alt="" className="img-drop-thumb" />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600 }}>{source.label}</div>
+                        <button className="btn sm ghost" style={{ padding: "1px 7px" }}
+                          onClick={() => setSource(null)}>✕ choose another</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 12.5, marginBottom: 6 }}>
+                        Drop an image here, or
+                        <label className="btn sm" style={{ marginLeft: 6, display: "inline-flex" }}>
+                          browse…
+                          <input type="file" accept="image/*" hidden
+                            onChange={(e) => pickFile(e.target.files?.[0])} />
+                        </label>
+                      </div>
+                      {images.length > 0 && (
+                        <div>
+                          <div className="param-hint">…or pick one you already made:</div>
+                          <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingTop: 6 }}>
+                            {images.slice(0, 12).map((img) => (
+                              <img key={img} src={`/api/imagegen/images/${img}`} alt=""
+                                className="img-pick"
+                                title={imageMeta[img]?.prompt || img}
+                                onClick={() => setSource({ name: img, label: img })} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginTop: 10, flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <label style={{ display: "block", marginBottom: 4, fontWeight: 500, fontSize: 12.5 }}>
+                      What to do with it
+                    </label>
+                    <select value={mode} onChange={(e) => setMode(e.target.value)}
+                      disabled={generating}
+                      style={{ width: "100%", padding: "8px 6px", border: "1px solid var(--border)",
+                               borderRadius: 6, fontSize: 13 }}>
+                      {modes.map((m) => (
+                        <option key={m.key} value={m.key}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {["style", "structure", "depth", "face"].includes(mode) && (
+                    <div>
+                      <label style={{ display: "block", marginBottom: 4, fontWeight: 500, fontSize: 12.5 }}>
+                        Influence
+                      </label>
+                      <input type="number" min={0.1} max={2} step={0.1} value={cnWeight}
+                        onChange={(e) => setCnWeight(e.target.value)}
+                        style={{ width: 70, padding: "7px 6px", border: "1px solid var(--border)",
+                                 borderRadius: 6, fontSize: 13 }} />
+                    </div>
+                  )}
+                  <button className="btn primary" disabled={generating || !source}
+                    onClick={handleModify}>
+                    {generating ? "Working…" : "🖼️ Modify"}
+                  </button>
+                </div>
+                <div className="param-hint" style={{ marginTop: 6 }}>
+                  Uses the prompt box above for the change you want (except pure upscales).
+                  Vary/restyle re-diffuse the image — expect a few minutes on this GPU;
+                  “Upscale 2× (fast)” is the quick one.
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>

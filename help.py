@@ -74,7 +74,14 @@ Models page → "Image generation (Fooocus)": Install → Start image server →
 prompt → Generate. It runs SDXL locally. On a small GPU use the "Extreme Speed"
 or "Lightning" preset (a few minutes per image); the 30–60 step presets can take
 ~40 minutes. Style LoRAs can be searched and downloaded from Civitai in that
-panel (only SDXL-compatible ones work). Persona sprites use it automatically.
+panel (only SDXL-compatible ones work); each installed LoRA shows its description,
+a source link and a remove button. Persona sprites use it automatically.
+TO MODIFY AN EXISTING IMAGE: open "🖼️ Modify an existing image" in that same
+panel — drop/browse a file or click one you already made, then pick what to do:
+Vary (subtle/strong) re-imagines it using your prompt, Upscale enlarges it,
+"keep its composition/shapes" restyle it via ControlNet, Face swap, or Outpaint
+extends it outward. Vary/restyle take several minutes on a small GPU; "Upscale
+2x (fast)" is the quick one.
 IMPORTANT: while the image server runs it holds the GPU and lots of RAM, which
 makes chat and team runs much slower — stop it when done.
 
