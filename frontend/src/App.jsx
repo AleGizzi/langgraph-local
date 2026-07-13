@@ -14,6 +14,7 @@ import Chat from "./pages/Chat.jsx";
 import Knowledge from "./pages/Knowledge.jsx";
 import PixelStudio from "./pages/PixelStudio.jsx";
 import HelpAssistant from "./components/HelpAssistant.jsx";
+import PixelSprite from "./components/PixelSprite.jsx";
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -136,7 +137,7 @@ export default function App() {
       <div id="app">
         <aside className="sidebar">
           <div className="logo">
-            <div className="logo-mark">🧩</div>
+            <div className="logo-mark"><PixelSprite name="invader" size={20} color="#fff" /></div>
             <div>
               <div className="logo-name">Agents Studio</div>
               <div className="logo-sub">LangGraph · local</div>

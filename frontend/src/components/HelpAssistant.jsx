@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, toast } from "../lib/api.js";
 import { Md } from "../lib/markdown.jsx";
+import PixelSprite from "./PixelSprite.jsx";
 
 /* Floating help assistant, available on every page. It reuses the normal
  * /api/chat SSE endpoint with a server-provided agent config (help.py) whose
@@ -115,12 +116,17 @@ export default function HelpAssistant() {
   return (
     <>
       <button className={"help-fab" + (open ? " open" : "")} title="Help assistant"
-        onClick={() => setOpen(!open)}>{open ? "✕" : "❓"}</button>
+        onClick={() => setOpen(!open)}>
+        <PixelSprite name={open ? "close" : "squid"} size={open ? 20 : 24} color="#fff" />
+      </button>
 
       {open && (
         <div className="help-panel">
           <div className="help-head">
-            <span>🤖 <b>Help assistant</b></span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+              <PixelSprite name="squid" size={16} color="var(--accent)" />
+              <b>Help assistant</b>
+            </span>
             <span className="help-model">{cfg?.agent?.model || "…"}</span>
             <span className="spacer" style={{ flex: 1 }} />
             {messages.length > 0 && (
