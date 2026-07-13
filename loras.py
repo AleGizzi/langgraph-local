@@ -71,6 +71,7 @@ JuggernautXL/SDXL base. SD 1.5 LoRAs load without error but silently do
 nothing on an SDXL base, which is why `search()` returns a `compatible` flag
 per result instead of just omitting mismatches.
 """
+import json
 import os
 import re
 import threading
@@ -155,8 +156,17 @@ def search(query: str, base_model: str = "SDXL") -> dict:
                     continue
                 base = mv.get("baseModel") or ""
                 downloads = (mv.get("stats") or {}).get("downloadCount", item_downloads)
+                model_id = item.get("id")
+                version_id = mv.get("id")
+                # Page a user can actually open to inspect the LoRA (samples,
+                # licence, full description) — Civitai's own model page.
+                source_url = (
+                    f"https://civitai.com/models/{model_id}"
+                    + (f"?modelVersionId={version_id}" if version_id else "")
+                ) if model_id else None
                 results.append({
-                    "id": item.get("id"),
+                    "id": model_id,
+                    "version_id": version_id,
                     "name": item.get("name") or "",
                     "version_name": mv.get("name") or "",
                     "base_model": base,
@@ -165,6 +175,14 @@ def search(query: str, base_model: str = "SDXL") -> dict:
                     "download_url": f.get("downloadUrl"),
                     "downloads": downloads or 0,
                     "description": desc,
+                    # Words the LoRA was trained on: putting these in the prompt
+                    # is often what actually activates its style.
+                    "trigger_words": [w for w in (mv.get("trainedWords") or [])
+                                      if isinstance(w, str)][:8],
+                    "creator": ((item.get("creator") or {}).get("username")
+                                if isinstance(item.get("creator"), dict) else None),
+                    "nsfw": bool(item.get("nsfw")),
+                    "source_url": source_url,
                     "compatible": _is_compatible(base, base_model),
                 })
     except Exception as e:  # noqa: BLE001 - defensive: never let a shape surprise blow up
@@ -194,9 +212,14 @@ def download_status() -> dict:
         return {k: dict(v) for k, v in _downloads.items()}
 
 
-def download(download_url: str, file_name: str) -> dict:
+def download(download_url: str, file_name: str, meta: dict = None) -> dict:
     """Start a background download of a LoRA file into LORAS_DIR. Returns
-    immediately; poll download_status() for progress, keyed by file_name."""
+    immediately; poll download_status() for progress, keyed by file_name.
+
+    `meta` (what the search result told us: description, source_url, trigger
+    words, base model…) is persisted next to the file as `<file>.json` so the
+    UI can still explain the LoRA long after the search results are gone.
+    """
     try:
         name = _sanitize_file_name(file_name)
     except ValueError as e:
@@ -214,12 +237,40 @@ def download(download_url: str, file_name: str) -> dict:
         _downloads[name] = {"file_name": name, "download_url": url,
                             "status": "starting", "progress": 0, "error": None,
                             "done": False, "started_at": time.time()}
-    threading.Thread(target=_download_worker, args=(name, url), daemon=True,
-                     name=f"lora-download-{name}").start()
+    threading.Thread(target=_download_worker, args=(name, url, meta or {}),
+                     daemon=True, name=f"lora-download-{name}").start()
     return {"ok": True, "error": None}
 
 
-def _download_worker(name: str, url: str):
+def _meta_path(name: str) -> str:
+    return os.path.join(LORAS_DIR, name + ".json")
+
+
+def _write_meta(name: str, meta: dict):
+    """Sidecar with what this LoRA is and where it came from. Best effort."""
+    if not meta:
+        return
+    keep = {k: meta.get(k) for k in
+            ("name", "version_name", "description", "source_url", "base_model",
+             "trigger_words", "creator", "downloads", "id", "version_id")
+            if meta.get(k) not in (None, "", [])}
+    keep["downloaded_at"] = time.time()
+    try:
+        with open(_meta_path(name), "w", encoding="utf-8") as f:
+            json.dump(keep, f, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def read_meta(name: str) -> dict:
+    try:
+        with open(_meta_path(name), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _download_worker(name: str, url: str, meta: dict = None):
     try:
         os.makedirs(LORAS_DIR, exist_ok=True)
         dest = os.path.join(LORAS_DIR, name)
@@ -256,6 +307,7 @@ def _download_worker(name: str, url: str):
                     else:
                         _set(name, status=f"downloading ({done_bytes >> 20} MB)")
         os.replace(tmp_dest, dest)
+        _write_meta(name, meta or {})
         _set(name, done=True, progress=100, status="installed", error=None)
     except requests.RequestException as e:
         _set(name, done=True, status="error", error=f"download failed: {e}")
@@ -263,8 +315,43 @@ def _download_worker(name: str, url: str):
         _set(name, done=True, status="error", error=f"{type(e).__name__}: {e}")
 
 
+# LoRAs that Fooocus ships with (or that users drop in by hand) have no sidecar,
+# so describe the ones we know about rather than showing a blank row.
+KNOWN_LORAS = {
+    "sd_xl_offset_example-lora_1.0.safetensors": {
+        "description": "Stability AI's official SDXL offset-noise LoRA. Bundled "
+                       "with Fooocus and applied by default at a low weight — it "
+                       "deepens contrast and lets images render true blacks/whites "
+                       "instead of washed-out greys.",
+        "source_url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0",
+        "base_model": "SDXL 1.0", "builtin": True,
+    },
+    "sdxl_lcm_lora.safetensors": {
+        "description": "LCM (Latent Consistency Model) distillation LoRA. This is "
+                       "what the 'Extreme Speed' performance preset uses to generate "
+                       "in ~8 steps instead of 30 — Fooocus loads it automatically, "
+                       "so you don't need to select it.",
+        "source_url": "https://huggingface.co/latent-consistency/lcm-lora-sdxl",
+        "base_model": "SDXL 1.0", "builtin": True,
+    },
+    "sdxl_lightning_4step_lora.safetensors": {
+        "description": "ByteDance SDXL-Lightning LoRA: 4-step generation, used by "
+                       "the 'Lightning' performance preset. Loaded automatically.",
+        "source_url": "https://huggingface.co/ByteDance/SDXL-Lightning",
+        "base_model": "SDXL 1.0", "builtin": True,
+    },
+    "sdxl_hyper_sd_4step_lora.safetensors": {
+        "description": "ByteDance Hyper-SD LoRA: another 4-step accelerator, used "
+                       "by the 'Hyper-SD' preset. Loaded automatically.",
+        "source_url": "https://huggingface.co/ByteDance/Hyper-SD",
+        "base_model": "SDXL 1.0", "builtin": True,
+    },
+}
+
+
 def list_local() -> list:
-    """LoRA files currently sitting in LORAS_DIR. Creates the dir if missing."""
+    """LoRA files in LORAS_DIR, each with whatever we know about it: the sidecar
+    written at download time, or a builtin description for Fooocus's own files."""
     try:
         os.makedirs(LORAS_DIR, exist_ok=True)
     except OSError:
@@ -275,10 +362,75 @@ def list_local() -> list:
             if not entry.lower().endswith(LORA_FILE_EXTS):
                 continue
             path = os.path.join(LORAS_DIR, entry)
-            if os.path.isfile(path):
-                out.append({"file_name": entry,
-                           "size_mb": round(os.path.getsize(path) / (1024 * 1024), 1)})
+            if not os.path.isfile(path):
+                continue
+            info = {"file_name": entry,
+                    "size_mb": round(os.path.getsize(path) / (1024 * 1024), 1),
+                    "description": "", "source_url": None, "trigger_words": [],
+                    "base_model": None, "creator": None, "builtin": False}
+            info.update({k: v for k, v in KNOWN_LORAS.get(entry, {}).items()})
+            meta = read_meta(entry)
+            info.update({k: v for k, v in meta.items() if v not in (None, "", [])})
+            out.append(info)
     except OSError:
         return out
-    out.sort(key=lambda x: x["file_name"].lower())
+    # Builtins last: the user's own downloads are what they care about.
+    out.sort(key=lambda x: (x.get("builtin", False), x["file_name"].lower()))
     return out
+
+
+def identify(file_name: str) -> dict:
+    """Backfill metadata for a LoRA that has no sidecar (downloaded before
+    sidecars existed, or dropped into the folder by hand).
+
+    Searches Civitai for the file's name and accepts only an exact file-name
+    match, so we never mislabel a file with someone else's description.
+    """
+    try:
+        name = _sanitize_file_name(file_name)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    if not os.path.isfile(os.path.join(LORAS_DIR, name)):
+        return {"ok": False, "error": "not found"}
+    if name in KNOWN_LORAS:
+        return {"ok": True, "meta": KNOWN_LORAS[name], "error": None}
+
+    stem = re.sub(r"\.(safetensors|pt|ckpt)$", "", name, flags=re.I)
+    query = re.sub(r"[_\-]+", " ", stem).strip()
+    res = search(query)
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("error")}
+    hit = next((r for r in res["results"]
+                if (r.get("file_name") or "").lower() == name.lower()), None)
+    if not hit:
+        return {"ok": False,
+                "error": f"no exact match for '{name}' on Civitai — it may be "
+                         "private, renamed, or from another source"}
+    _write_meta(name, hit)
+    return {"ok": True, "meta": read_meta(name), "error": None}
+
+
+def delete(file_name: str) -> dict:
+    """Remove a LoRA file (and its sidecar) from LORAS_DIR."""
+    try:
+        name = _sanitize_file_name(file_name)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    path = os.path.join(LORAS_DIR, name)
+    # Confine to LORAS_DIR: never let a crafted name delete outside it.
+    root = os.path.realpath(LORAS_DIR)
+    if os.path.realpath(path) != os.path.join(root, name):
+        return {"ok": False, "error": "invalid path"}
+    if not os.path.isfile(path):
+        return {"ok": False, "error": "not found"}
+    try:
+        os.remove(path)
+    except OSError as e:
+        return {"ok": False, "error": f"could not delete: {e}"}
+    try:
+        os.remove(_meta_path(name))
+    except OSError:
+        pass
+    with _lock:
+        _downloads.pop(name, None)
+    return {"ok": True, "error": None}

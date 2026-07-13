@@ -351,7 +351,32 @@ def loras_download():
     name = (body.get("file_name") or "").strip()
     if not url or not name:
         abort(400, "download_url and file_name are required")
-    return jsonify(loras.download(url, name))
+    # Everything the search told us about this LoRA is persisted with the file,
+    # so the UI can still explain it later.
+    meta = {k: body.get(k) for k in
+            ("name", "version_name", "description", "source_url", "base_model",
+             "trigger_words", "creator", "downloads", "id", "version_id")}
+    return jsonify(loras.download(url, name, meta=meta))
+
+
+@app.post("/api/loras/identify")
+def loras_identify():
+    """Look up a local LoRA on Civitai to fill in its description/source."""
+    import loras
+    body = request.get_json(force=True) or {}
+    name = (body.get("file_name") or "").strip()
+    if not name:
+        abort(400, "file_name is required")
+    return jsonify(loras.identify(name))
+
+
+@app.delete("/api/loras/<path:file_name>")
+def loras_delete(file_name):
+    import loras
+    res = loras.delete(file_name)
+    if not res.get("ok"):
+        abort(400, res.get("error") or "could not delete")
+    return jsonify(res)
 
 
 @app.get("/api/imagegen/images/<path:filename>")

@@ -145,6 +145,29 @@ negative=negative)` with **default** aspect ratio and performance mode (no
   LoRAs (`sd_xl_offset_example-lora_1.0.safetensors`,
   `sdxl_lcm_lora.safetensors`) already live after a normal install.
 
+### LoRA metadata, source links and removal
+
+- **Search results** carry `description`, `source_url` (the Civitai model page —
+  open it to inspect samples/licence), `trigger_words` (`trainedWords`; putting
+  these in the prompt is often what actually activates the style), `creator`,
+  and the SDXL-compatibility flag.
+- **Downloads persist that metadata** in a `<file>.json` sidecar next to the
+  `.safetensors`, so the Installed list can still explain a LoRA long after the
+  search results are gone.
+- **`list_local()`** merges: the sidecar → `KNOWN_LORAS` (hand-written
+  descriptions for the LoRAs Fooocus ships: the offset-noise LoRA and the
+  LCM/Lightning/Hyper-SD accelerators the performance presets load automatically
+  — these are marked `builtin` and cannot be deleted from the UI) → basic file
+  facts.
+- **`POST /api/loras/identify {file_name}`** backfills metadata for a file with
+  no sidecar (downloaded before sidecars existed, or dropped in by hand): it
+  searches Civitai for the filename and accepts **only an exact file-name
+  match**, so a file is never mislabelled with someone else's description. It
+  honestly returns an error when there's no match.
+- **`DELETE /api/loras/<file_name>`** removes the file and its sidecar. Names
+  are sanitized to a basename and confined to `LORAS_DIR` (a `../` traversal
+  attempt 404s and touches nothing).
+
 ## Gotchas
 
 - **The old `docs/image-generation.md` described a different, incomplete

@@ -22,6 +22,7 @@ export default function ImageGen() {
   const [localLoras, setLocalLoras] = useState([]);
   const [loraDownloads, setLoraDownloads] = useState({});
   const [selectedLoras, setSelectedLoras] = useState({}); // file_name -> weight
+  const [identifying, setIdentifying] = useState(null);
   const loraPollRef = useRef(null);
 
   // Load initial status and gallery
@@ -199,11 +200,44 @@ export default function ImageGen() {
     }
   };
 
+  const handleLoraDelete = async (l) => {
+    if (!confirm(`Remove ${l.file_name}? The file is deleted from disk.`)) return;
+    try {
+      await api(`/loras/${encodeURIComponent(l.file_name)}`, { method: "DELETE" });
+      setSelectedLoras((sel) => {
+        const next = { ...sel };
+        delete next[l.file_name];
+        return next;
+      });
+      toast(`Removed ${l.file_name}`);
+      loadLoras();
+    } catch (e) { toast(e.message, true); }
+  };
+
+  const handleLoraIdentify = async (l) => {
+    setIdentifying(l.file_name);
+    try {
+      const r = await api("/loras/identify", {
+        method: "POST", body: { file_name: l.file_name } });
+      if (r.ok) { toast(`Identified: ${r.meta.name || l.file_name}`); loadLoras(); }
+      else toast(r.error || "Could not identify", true);
+    } catch (e) { toast(e.message, true); }
+    setIdentifying(null);
+  };
+
   const handleLoraDownload = async (result) => {
     try {
       const r = await api("/loras/download", {
         method: "POST",
-        body: { download_url: result.download_url, file_name: result.file_name },
+        // Carry the description/source/triggers so they survive with the file.
+        body: {
+          download_url: result.download_url, file_name: result.file_name,
+          name: result.name, version_name: result.version_name,
+          description: result.description, source_url: result.source_url,
+          base_model: result.base_model, trigger_words: result.trigger_words,
+          creator: result.creator, downloads: result.downloads,
+          id: result.id, version_id: result.version_id,
+        },
       });
       if (r.error) {
         toast(r.error, true);
@@ -467,6 +501,17 @@ export default function ImageGen() {
                             {r.description && (
                               <div className="param-hint" style={{ marginTop: 2 }}>{r.description}</div>
                             )}
+                            <div className="param-hint" style={{ marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {r.source_url && (
+                                <a href={r.source_url} target="_blank" rel="noopener noreferrer">
+                                  🔗 inspect on Civitai
+                                </a>
+                              )}
+                              {r.creator && <span>by {r.creator}</span>}
+                              {(r.trigger_words || []).length > 0 && (
+                                <span>trigger: <code>{r.trigger_words.join(", ")}</code></span>
+                              )}
+                            </div>
                           </div>
                           {already ? (
                             <span className="param-hint" style={{ margin: 0, color: "var(--green)" }}>✓ installed</span>
@@ -488,29 +533,59 @@ export default function ImageGen() {
                 {localLoras.length === 0 ? (
                   <div className="param-hint">None yet — search above and download one.</div>
                 ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {localLoras.map((l) => (
-                      <div key={l.file_name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <input
-                          type="checkbox"
-                          checked={l.file_name in selectedLoras}
-                          onChange={() => toggleLoraSelected(l.file_name)}
-                        />
-                        <span style={{ fontSize: 12.5, flex: 1 }}>{l.file_name}</span>
-                        <span className="param-hint" style={{ margin: 0 }}>{l.size_mb} MB</span>
-                        <input
-                          type="number"
-                          min={0.1}
-                          max={2}
-                          step={0.1}
-                          value={selectedLoras[l.file_name] ?? 0.8}
-                          disabled={!(l.file_name in selectedLoras)}
-                          onChange={(e) => setLoraWeight(l.file_name, e.target.value)}
-                          style={{
-                            width: 56, padding: "3px 5px", border: "1px solid var(--border)",
-                            borderRadius: 5, fontSize: 12,
-                          }}
-                        />
+                      <div key={l.file_name} className="lora-row">
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <input
+                            type="checkbox"
+                            checked={l.file_name in selectedLoras}
+                            onChange={() => toggleLoraSelected(l.file_name)}
+                          />
+                          <span style={{ fontSize: 12.5, flex: 1, minWidth: 0 }}>
+                            <b>{l.name || l.file_name}</b>
+                            {l.builtin && <span className="chip" style={{ marginLeft: 6 }}>built-in</span>}
+                            {l.base_model && <span className="chip" style={{ marginLeft: 6 }}>{l.base_model}</span>}
+                          </span>
+                          <span className="param-hint" style={{ margin: 0 }}>{l.size_mb} MB</span>
+                          <input
+                            type="number" min={0.1} max={2} step={0.1}
+                            title="LoRA weight"
+                            value={selectedLoras[l.file_name] ?? 0.8}
+                            disabled={!(l.file_name in selectedLoras)}
+                            onChange={(e) => setLoraWeight(l.file_name, e.target.value)}
+                            style={{
+                              width: 56, padding: "3px 5px", border: "1px solid var(--border)",
+                              borderRadius: 5, fontSize: 12,
+                            }}
+                          />
+                          {!l.builtin && (
+                            <button className="icon-btn" title={`Remove ${l.file_name}`}
+                              onClick={() => handleLoraDelete(l)}>🗑️</button>
+                          )}
+                        </div>
+                        <div className="param-hint" style={{ paddingLeft: 24 }}>
+                          {l.description
+                            ? l.description
+                            : <em>No description — this file has no metadata yet.</em>}
+                        </div>
+                        <div className="param-hint" style={{ paddingLeft: 24, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <code>{l.file_name}</code>
+                          {l.source_url && (
+                            <a href={l.source_url} target="_blank" rel="noopener noreferrer">🔗 source</a>
+                          )}
+                          {l.creator && <span>by {l.creator}</span>}
+                          {(l.trigger_words || []).length > 0 && (
+                            <span>trigger: <code>{l.trigger_words.join(", ")}</code></span>
+                          )}
+                          {!l.description && !l.builtin && (
+                            <button className="btn sm ghost" style={{ padding: "1px 7px" }}
+                              disabled={identifying === l.file_name}
+                              onClick={() => handleLoraIdentify(l)}>
+                              {identifying === l.file_name ? "looking up…" : "🔍 look up on Civitai"}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
