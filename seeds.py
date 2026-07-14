@@ -5,12 +5,88 @@ GENERAL = "qwen2.5:7b"
 CODER = "qwen2.5-coder:7b"
 
 
-def _agent(name, role, model, prompt, temperature=0.7, tools=None, provider="ollama"):
+def _agent(name, role, model, prompt, temperature=0.7, tools=None, provider="ollama",
+           skills=None):
     return {"name": name, "role": role, "provider": provider, "model": model,
-            "system_prompt": prompt, "temperature": temperature, "tools": tools or []}
+            "system_prompt": prompt, "temperature": temperature,
+            "tools": tools or [], "skills": skills or []}
 
 
 SEED_TEAMS = [
+    {
+        "name": "Flask App Factory",
+        "icon": "🧪",
+        "description": "Turns a one-line idea into a Flask app that is proven to run: "
+                       "the Verifier executes the smoke test and fixes it until it "
+                       "passes, so you get working code, not plausible code.",
+        "topology": "pipeline",
+        # No quality_loop: the loop that matters here is the Verifier's own
+        # run→read traceback→fix cycle against a real interpreter. A second LLM
+        # opinion adds minutes and decides nothing that the exit code doesn't.
+        "settings": {"quality_loop": False},
+        "agents": [
+            _agent("Spec", "Product spec", GENERAL,
+                   "Turn the user's one-line idea into the smallest concrete Flask spec "
+                   "that satisfies it. Output ONLY:\n"
+                   "1. A route table: Method | Path | Purpose | Response.\n"
+                   "2. The data shape, as one example record. State lives in an "
+                   "IN-MEMORY DICT — write that in the spec explicitly. Only specify a "
+                   "database if the user actually asked for the data to survive a "
+                   "restart, which they almost never did.\n"
+                   "3. Anything deliberately left out.\n"
+                   "Keep it to one screen. Assume flask + stdlib only, no database "
+                   "server, no auth, no frontend build step. Fill gaps with sensible "
+                   "defaults instead of asking questions; the user gave you one line on "
+                   "purpose.\n"
+                   "WRITE NO CODE. Not one line, not one code block, no `def`, no "
+                   "`import`, no @app.route decorators. A route TABLE is a table, not a "
+                   "file. The Builder writes the code and it must design from your spec, "
+                   "not copy a half-finished sketch from you — code here actively makes "
+                   "the app worse.", 0.3),
+            _agent("Builder", "Implementation engineer", CODER,
+                   "Build the app from the spec. Use write_file to write app.py, "
+                   "smoke_test.py and requirements.txt into the workspace — a code block "
+                   "in your reply is not a delivered file. Write complete code: no TODOs, "
+                   "no placeholders, no '...'. Then state which files you wrote.", 0.2,
+                   tools=["files"], skills=["Runnable Flask App"]),
+            # qwen2.5:7b, not the coder model: this agent's whole job is calling
+            # tools, and qwen2.5-coder emits tool calls as plain text (see
+            # engine.salvage_tool_calls) or skips them entirely in favour of the
+            # `File:` convention — a verifier that doesn't run anything is worse
+            # than no verifier, because it reports success.
+            _agent("Verifier", "Verification engineer", GENERAL,
+                   "You prove the app runs. You have a real Python interpreter — USE IT. "
+                   "The Builder already wrote app.py, smoke_test.py and requirements.txt "
+                   "into the workspace.\n"
+                   "YOUR FIRST ACTION IS A run_python TOOL CALL on smoke_test.py. Not a "
+                   "code block, not a summary, not a plan — the tool call. You are "
+                   "forbidden from writing the words 'File:' or pasting a code block into "
+                   "your reply; files are changed ONLY through the write_file tool.\n"
+                   "Then loop:\n"
+                   "1. Exit code 0 with 'SMOKE TEST PASSED' in stdout → done. Report the "
+                   "routes and how to start the app (`python app.py`).\n"
+                   "2. Otherwise read the traceback (its LAST line names the real cause, "
+                   "the frames above it are Flask internals), say in one line what the "
+                   "cause is, then: read_file the offending file and fix it with "
+                   "edit_file, passing only the exact lines that change. Then call "
+                   "run_python again.\n"
+                   "Prefer edit_file over write_file: re-emitting a whole source file "
+                   "inside a tool argument is how you drop the content field and lose "
+                   "the file. old_text must be COPIED from the read_file output you just "
+                   "received — never typed from memory, or it will not match. If "
+                   "edit_file reports 'old_text not found' twice on the same file, stop "
+                   "guessing: read_file it and rewrite the whole thing with write_file.\n"
+                   "Fix the app, never weaken the test to make it pass and never delete "
+                   "an assertion — unless the test itself is wrong (it asserts on a "
+                   "random id, or forgets the leading '/'), in which case fix the test "
+                   "and say so.\n"
+                   "If it still will not go green, say so plainly and paste the last "
+                   "traceback. NEVER claim the app works without a run_python result "
+                   "showing exit code 0 in this conversation. A claim of success with no "
+                   "tool call behind it is a lie.", 0.1,
+                   tools=["files", "run_python"], skills=["Runnable Flask App"]),
+        ],
+    },
     {
         "name": "Research & Report",
         "icon": "📝",
@@ -371,6 +447,48 @@ SEED_SKILLS = [
         "actually flows across it (data, a call, an event) — an unlabelled arrow says "
         "nothing. Use Mermaid, not Excalidraw or images: it is text, it renders "
         "anywhere, and it can be reviewed in a diff."},
+    {"name": "Runnable Flask App", "icon": "🧪",
+     "description": "Contract for Flask apps that actually run and prove it.",
+     "instructions": "You build Flask apps that RUN. Obey this contract exactly.\n"
+        "FILES — write them to the workspace with write_file, never paste-only:\n"
+        "  * app.py — the whole application, single file.\n"
+        "  * smoke_test.py — proves the app works (see below).\n"
+        "  * requirements.txt — pinned, minimal.\n"
+        "APP RULES:\n"
+        "  1. Dependencies: flask and the Python standard library ONLY. No SQLAlchemy,\n"
+        "     no requests, no external service, no network call, no API key — it must\n"
+        "     run on a machine that is offline.\n"
+        "  2. STATE IS A PLAIN DICT at module level (`store = {}`). Reach for sqlite3\n"
+        "     ONLY if the user explicitly asked the data to survive a restart. A dict\n"
+        "     cannot fail at import; a database connection and a CREATE TABLE can, and\n"
+        "     usually do.\n"
+        "  3. app.py NEVER contains a test client. `app.test_client()` belongs in\n"
+        "     smoke_test.py and nowhere else — putting it in app.py breaks the import\n"
+        "     for everything downstream. Do not name anything in app.py `c`.\n"
+        "  4. `app = Flask(__name__)` at module level so it can be imported.\n"
+        "  5. app.run() goes inside `if __name__ == '__main__':` and NOWHERE else.\n"
+        "     Never call app.run() at import time — it blocks forever and nothing\n"
+        "     that imports the module will ever return.\n"
+        "  6. State is created at import, so a fresh process has a working app with\n"
+        "     no setup step.\n"
+        "  7. Return real responses: HTML via render_template_string, or jsonify.\n"
+        "SMOKE TEST — smoke_test.py must:\n"
+        "  * `from app import app` then `c = app.test_client()`.\n"
+        "  * Use the test client, NEVER app.run() and never a real HTTP request:\n"
+        "    the test client needs no port and returns instantly.\n"
+        "  * Exercise EVERY route, including one POST/form path if the app has one.\n"
+        "  * Assert only on things that are STABLE: status codes (200/201/302/404),\n"
+        "    a JSON key being present, a fixed literal you yourself sent in. NEVER\n"
+        "    assert on a value the app generates — a uuid, a random short code, a\n"
+        "    timestamp, a hash. `assert b'\"short\": \"http://localhost:5000/abc\"' in\n"
+        "    resp.data` can never pass, because the id is random every run. Assert\n"
+        "    that the KEY exists, then reuse the returned value for the next request.\n"
+        "  * Paths passed to the test client always start with '/': c.get('/' + id),\n"
+        "    never c.get(id).\n"
+        "  * assert, so failures raise and the exit code is non-zero.\n"
+        "  * End with: print('SMOKE TEST PASSED').\n"
+        "The app is not done when the code looks right. It is done when\n"
+        "smoke_test.py exits 0 and prints SMOKE TEST PASSED."},
     {"name": "Brainstorming", "icon": "💡",
      "description": "Diverges widely before converging — no premature single answer.",
      "instructions": "Do not converge early. First DIVERGE: produce at least 6 genuinely "
@@ -422,6 +540,16 @@ def backfill_builtins():
             create(item, builtin=True)
             changed = True
         storage.set_meta(key, sorted(offered | {i["name"] for i in seeds}))
+
+    # Teams have no `builtin` flag and the user owns them outright, so the rule
+    # is the same but blunter: offer a new seed team once, never touch it again.
+    offered = set(storage.get_meta("seeded_teams", []))
+    have = {t["name"] for t in storage.list_teams()}
+    for t in SEED_TEAMS:
+        if t["name"] not in offered and t["name"] not in have:
+            storage.create_team(t)
+            changed = True
+    storage.set_meta("seeded_teams", sorted(offered | {t["name"] for t in SEED_TEAMS}))
 
     # Builtin personas that predate the skills we just added (Architect, Code
     # Reviewer, Brainstormer) already exist, so the insert above skips them and

@@ -44,7 +44,13 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   attached to the Code Reviewer, Frontend Designer, Security Auditor, Architect
   and Brainstormer personas. The Web Researcher persona has web_search +
   read_webpage. run_python executes real code from the run workspace, so only
-  enable it on agents you trust.
+  enable it on agents you trust. The "files" tool is a bundle: write_file,
+  edit_file, read_file, list_files.
+- **Flask App Factory** (a team on the Studio page): give it a one-line idea
+  ("a URL shortener") and it delivers a Flask app that is PROVEN to run — the
+  Verifier agent executes a smoke test with run_python and fixes the code until
+  it exits 0, so you get working code rather than plausible code. Takes 10-20
+  minutes on a local 7B; the produced app runs with `python app.py`.
 - **Models** (#/models): installed models, the full Ollama catalog with
   one-click install, and the Image generation (Fooocus) section. CLICK ANY MODEL
   NAME to open its card: what it is best used for (brainstorming, problem

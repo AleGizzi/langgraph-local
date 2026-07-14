@@ -29,7 +29,10 @@ from typing_extensions import TypedDict
 from providers import LLM_IDLE_TIMEOUT, make_llm
 from tools import resolve_tools
 
-MAX_TOOL_ROUNDS = 5
+# One fix cycle for a verifying agent costs three rounds (run → read → write), so
+# a budget of 5 could not complete two attempts and the agent silently gave up
+# mid-repair. Tunable for anyone who wants a tighter leash.
+MAX_TOOL_ROUNDS = int(os.environ.get("MAX_TOOL_ROUNDS", "14"))
 
 # Preferred executor for tool delegation (see _delegate_loop): agents whose
 # model can't call tools hand tool work to this model. "provider::model" or
@@ -79,6 +82,49 @@ def _find_delegate_request(text: str):
     if not m:
         return None
     return (m.group(1) or m.group(2) or "").strip() or None
+
+
+_CALL_START_RE = re.compile(r'\{\s*"name"\s*:\s*"([A-Za-z0-9_]+)"')
+_ARG_KEYS = ("arguments", "parameters", "args", "input")
+
+
+def salvage_tool_calls(content: str, tool_names) -> list:
+    """Recover tool calls a model printed as TEXT instead of calling properly.
+
+    Some models advertise Ollama's `tools` capability and still emit
+    `{"name": "run_python", "arguments": {...}}` into the content stream —
+    qwen2.5-coder:7b does exactly this. Untreated, tools bind, the model
+    "calls" one, nothing executes, and the agent reports success having done
+    nothing at all. (Invariant 1: parse model output defensively.)
+
+    Scans with a real JSON decoder rather than a regex, because the arguments
+    are routinely a whole source file full of braces, quotes and newlines. A
+    non-greedy `{.*?}` truncates at the first `}` inside an f-string or a dict
+    literal, fails to parse, and drops the call on the floor — which is exactly
+    the silent failure this function exists to prevent.
+
+    Only salvages a call whose name is actually bound and whose arguments decode
+    to a JSON object, so prose that merely mentions a tool is never mistaken for
+    a call.
+    """
+    calls, decoder, text = [], json.JSONDecoder(), content or ""
+    for m in _CALL_START_RE.finditer(text):
+        if m.group(1) not in tool_names:
+            continue
+        try:
+            obj, _end = decoder.raw_decode(text, m.start())
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("name") not in tool_names:
+            continue
+        args = next((obj[k] for k in _ARG_KEYS if isinstance(obj.get(k), dict)), None)
+        if args is None:
+            continue
+        # Shape must be exactly LangChain's ToolCall — an extra key here makes
+        # AIMessage(tool_calls=...) raise.
+        calls.append({"name": obj["name"], "args": args,
+                      "id": f"salvaged_{len(calls)}"})
+    return calls
 
 
 class RunCancelled(Exception):
@@ -218,10 +264,11 @@ def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
                 yield {"type": "token", "content": text}
         if full is None:
             break
-        response = AIMessage(
-            content=full.content if isinstance(full.content, str) else str(full.content),
-            tool_calls=getattr(full, "tool_calls", []) or [],
-        )
+        content = full.content if isinstance(full.content, str) else str(full.content)
+        calls = getattr(full, "tool_calls", []) or []
+        if not calls and tool_map:
+            calls = salvage_tool_calls(content, tool_map)
+        response = AIMessage(content=content, tool_calls=calls)
         calls = response.tool_calls
         if not calls or _round == MAX_TOOL_ROUNDS:
             final = _strip_reasoning(response.content)
@@ -427,6 +474,11 @@ class TeamRunner:
 
     def _tool_loop(self, agent: dict, llm, tool_map: dict, msgs: list,
                    emit_tokens: bool = True) -> str:
+        # Small models fall into calling the same tool with the same arguments
+        # over and over — re-running a failing test without ever fixing it, and
+        # burning the whole round budget. Nothing in the transcript tells them
+        # they are repeating themselves, so we do.
+        seen_calls = {}
         for _round in range(MAX_TOOL_ROUNDS + 1):
             self._check_cancel()
             full = None
@@ -438,11 +490,16 @@ class TeamRunner:
                     self.emit("token", agent=agent["name"], content=text)
             if full is None:
                 return ""
-            response = AIMessage(
-                content=full.content if isinstance(full.content, str) else str(full.content),
-                tool_calls=getattr(full, "tool_calls", []) or [],
-            )
-            calls = response.tool_calls
+            content = full.content if isinstance(full.content, str) else str(full.content)
+            calls = getattr(full, "tool_calls", []) or []
+            if not calls and tool_map:
+                calls = salvage_tool_calls(content, tool_map)
+                if calls:
+                    self.emit("decision", agent=agent["name"],
+                              content=f"{agent['model']} printed its tool call as text "
+                                      "instead of calling it — recovered "
+                                      f"{', '.join(c['name'] for c in calls)}.")
+            response = AIMessage(content=content, tool_calls=calls)
             if not calls or _round == MAX_TOOL_ROUNDS:
                 return _strip_reasoning(response.content)
             msgs.append(response)
@@ -455,6 +512,18 @@ class TeamRunner:
                     result = fn.invoke(args) if fn else f"Unknown tool {name}"
                 except Exception as e:  # noqa: BLE001
                     result = f"Tool error: {e}"
+
+                sig = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+                seen_calls[sig] = seen_calls.get(sig, 0) + 1
+                if seen_calls[sig] > 1:
+                    result = (
+                        f"{result}\n\n[Loop guard] You have now called {name} with these "
+                        f"exact arguments {seen_calls[sig]} times and the result has not "
+                        "changed — repeating it will not change it again. Change "
+                        "something concrete: read the file, fix the specific line the "
+                        "error names, THEN re-run. If you cannot work out the cause, stop "
+                        "and report the last error instead of retrying.")
+
                 self.emit("tool_result", agent=agent["name"], content=str(result)[:1000])
                 msgs.append(ToolMessage(content=str(result), tool_call_id=call.get("id", name)))
         return ""

@@ -108,6 +108,14 @@ def read_webpage(url: str) -> str:
     return text[:8000] + ("\n…[truncated]" if len(text) > 8000 else "")
 
 
+def _head(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit] + "\n…[truncated]"
+
+
+def _tail(text: str, limit: int) -> str:
+    return text if len(text) <= limit else "…[earlier output truncated]\n" + text[-limit:]
+
+
 def make_run_python(workspace: str):
     """Build the run_python tool bound to this run's workspace.
 
@@ -139,9 +147,14 @@ def make_run_python(workspace: str):
             return f"Error running {path}: {e}"
         parts = [f"exit code: {p.returncode}"]
         if p.stdout.strip():
-            parts.append(f"stdout:\n{p.stdout.strip()[:3000]}")
+            parts.append("stdout:\n" + _head(p.stdout.strip(), 3000))
         if p.stderr.strip():
-            parts.append(f"stderr:\n{p.stderr.strip()[:2000]}")
+            # TAIL, not head. A Python traceback ends with the line that actually
+            # explains the failure and begins with framework frames nobody needs;
+            # truncating from the front hands the model 2000 characters of Flask
+            # internals with the cause cut off, and it retries blindly instead of
+            # fixing anything.
+            parts.append("stderr:\n" + _tail(p.stderr.strip(), 2500))
         return "\n".join(parts)
 
     return run_python
@@ -215,15 +228,65 @@ def make_workspace_tools(workspace: str):
             raise ValueError("path escapes workspace")
         return full
 
+    def _syntax_error(path: str, content: str):
+        """Reject a .py write that would not even parse.
+
+        A model whose edit lands at the wrong indentation corrupts the file, and
+        every later run fails on the SyntaxError instead of the real bug — the
+        agent then loops forever against a file that cannot import. Refusing the
+        write keeps the last good version on disk and hands back the exact line.
+        """
+        if not path.endswith(".py"):
+            return None
+        try:
+            compile(content, path, "exec")
+            return None
+        except SyntaxError as e:
+            return (f"Error: refused — this would leave {path} unparseable. "
+                    f"{type(e).__name__}: {e.msg} (line {e.lineno}). The file is "
+                    "unchanged; re-read it and match the existing indentation.")
+
     @tool
     def write_file(path: str, content: str) -> str:
         """Write content to a file in the shared workspace. Relative paths only."""
         try:
             full = _safe(path)
+            bad = _syntax_error(path, content)
+            if bad:
+                return bad
             os.makedirs(os.path.dirname(full), exist_ok=True)
             with open(full, "w", encoding="utf-8") as f:
                 f.write(content)
             return f"Wrote {len(content)} chars to {path}"
+        except Exception as e:  # noqa: BLE001
+            return f"Error: {e}"
+
+    @tool
+    def edit_file(path: str, old_text: str, new_text: str) -> str:
+        """Replace an exact snippet in a workspace file — the way to FIX one line.
+
+        Prefer this over write_file when changing existing code: you only emit the
+        few lines that change, not the whole file. old_text must appear exactly
+        once in the file (copy it from read_file, including indentation).
+        """
+        try:
+            full = _safe(path)
+            with open(full, encoding="utf-8") as f:
+                text = f.read()
+            hits = text.count(old_text)
+            if hits == 0:
+                return ("Error: old_text not found — copy it exactly from read_file, "
+                        "including indentation and line breaks.")
+            if hits > 1:
+                return (f"Error: old_text appears {hits} times; include more "
+                        "surrounding lines so it matches exactly one place.")
+            updated = text.replace(old_text, new_text)
+            bad = _syntax_error(path, updated)
+            if bad:
+                return bad
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(updated)
+            return f"Edited {path}: replaced 1 occurrence."
         except Exception as e:  # noqa: BLE001
             return f"Error: {e}"
 
@@ -250,7 +313,7 @@ def make_workspace_tools(workspace: str):
         except Exception as e:  # noqa: BLE001
             return f"Error: {e}"
 
-    return [write_file, read_file, list_files]
+    return [write_file, edit_file, read_file, list_files]
 
 
 TOOL_CATALOG = {

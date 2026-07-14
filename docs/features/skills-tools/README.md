@@ -46,7 +46,8 @@ skill- and tool-drafting (the team-drafting half lives in
   **`builtin` has 9 entries**: `calculator`, `current_datetime`, `http_get`,
   `web_search`, `read_webpage`, `run_python`, `files`, `knowledge`,
   `generate_image` (verified against `tools.TOOL_CATALOG` — keep this list in
-  sync when you add a builtin, it has gone stale before).
+  sync when you add a builtin, it has gone stale before). Note `files` is a
+  *bundle*: it expands to `write_file`, `edit_file`, `read_file`, `list_files`.
 - `GET /api/tools/files/<filename>` → `{file, code}` (404 if missing).
 - `PUT /api/tools/files/<filename>` `{code}` — writes the file, **reloads
   immediately** so the response reports load errors:
@@ -127,6 +128,53 @@ Rules of thumb this produced, worth reusing when writing any new skill:
   finds nothing, say 'Pass 1: clean'" produced a review that listed four issues
   *and then declared itself clean*. Escape hatches must be spelled out as
   mutually exclusive with the finding list.
+
+### Flask App Factory — a team whose output is *proven* to run
+
+Seed team (`seeds.SEED_TEAMS`), pipeline: **Spec → Builder → Verifier**. From a
+one-line prompt ("a URL shortener") it delivers `app.py`, `smoke_test.py` and
+`requirements.txt`, and the Verifier does not get to *claim* the app works — it
+has `run_python` and must show exit code 0.
+
+The load-bearing trick: **a Flask app is a blocking server**, so an agent that
+runs `app.run()` under `run_python` just hangs until the 30s timeout and learns
+nothing. Instead the `Runnable Flask App` skill requires a `smoke_test.py` that
+drives the app through `app.test_client()` — no port, no blocking, returns in
+milliseconds, exercises every route. That is what makes "executable" *checkable*
+by a machine instead of asserted by a model.
+
+Four real bugs surfaced only by running this against real models, each fixed in
+code rather than by nagging the prompt:
+
+1. **`engine.salvage_tool_calls`.** qwen2.5-coder:7b advertises Ollama's `tools`
+   capability but prints `{"name": "run_python", ...}` as *text*. Tools bound,
+   nothing executed, agent reported success having done nothing. Now recovered —
+   with a JSON scanner, not a regex: the arguments are usually a whole source
+   file, and a non-greedy `{.*?}` truncates at the first `}` inside an f-string.
+2. **`MAX_TOOL_ROUNDS` was 5.** One fix cycle costs three rounds (run → read →
+   write), so a verifier could not complete two attempts and silently gave up
+   mid-repair. Now 14, env-tunable.
+3. **`run_python` truncated stderr from the front.** A traceback's *last* line
+   names the cause; the head is framework frames. The model was handed 2000
+   characters of Flask internals with the cause cut off, so it re-ran the same
+   failing test forever. stderr now keeps the **tail**.
+4. **A bad `edit_file` could corrupt the file.** An edit landing at the wrong
+   indentation left `app.py` unparseable, and every later run failed on the
+   SyntaxError instead of the real bug. `write_file`/`edit_file` now `compile()`
+   any `.py` before writing and **refuse** the write, leaving the last good
+   version on disk. This fires in practice — the passing run shows one refused
+   edit, after which the model re-read the file and got it right.
+
+Plus a **loop guard** in `_tool_loop`: repeating a tool call with identical
+arguments appends a warning to the result, because small models otherwise re-run
+a failing test indefinitely without changing anything.
+
+Honest limits: this is a 7B doing a multi-step repair loop, so it is
+probabilistic, not deterministic — a run takes 10–20 minutes and can still end
+short of green, in which case the Verifier reports the last traceback rather than
+faking success. The Builder tends to reach for sqlite when left alone, which is
+why the Spec agent is instructed to specify an in-memory dict unless persistence
+was actually requested; simple state is what a 7B can get right first time.
 
 `run_python` deserves its own warning: it executes real Python with the user's
 permissions. It is confined to the run workspace and killed after 30s, but a
