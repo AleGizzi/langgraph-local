@@ -5,3 +5,16 @@ langchain-openai>=1.0
 requests>=2.31
 gunicorn>=23.0
 zstandard>=0.22
+
+# Verification toolchains for the hardware / 3D teams:
+#   gpiozero  — Raspberry Pi GPIO with a mock pin factory, so Pi code runs here
+#   trimesh   — build + validate 3D meshes (check_stl)
+#   scipy     — trimesh needs it for connected-body analysis
+#   manifold3d — boolean ops that keep meshes watertight
+# Arduino compiling needs arduino-cli + `arduino-cli core install arduino:avr`
+# (installed outside pip, see docs/features/skills-tools).
+gpiozero
+trimesh
+numpy
+scipy
+manifold3d

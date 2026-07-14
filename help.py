@@ -46,11 +46,18 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   read_webpage. run_python executes real code from the run workspace, so only
   enable it on agents you trust. The "files" tool is a bundle: write_file,
   edit_file, read_file, list_files.
-- **Flask App Factory** (a team on the Studio page): give it a one-line idea
-  ("a URL shortener") and it delivers a Flask app that is PROVEN to run — the
-  Verifier agent executes a smoke test with run_python and fixes the code until
-  it exits 0, so you get working code rather than plausible code. Takes 10-20
-  minutes on a local 7B; the produced app runs with `python app.py`.
+- **Build teams that prove their output works** (all on the Studio page, all take
+  a one-line idea and take 10-20 min on a local 7B):
+  * Flask App Factory — a Flask web app; the Verifier runs a smoke test with
+    run_python until it exits 0. Run the result with `python app.py`.
+  * Raspberry Pi Lab — gpiozero GPIO code; the Verifier RUNS it here using
+    gpiozero's mock pin factory, so no Pi and no wiring is needed to check it.
+  * Arduino Forge — an AVR sketch; the Verifier COMPILES it with the real
+    arduino-cli toolchain, so "it works" means it actually builds for the board.
+  * 3D Model Forge — a parametric model in trimesh exported to STL; the Verifier
+    generates the STL and checks it is watertight and printable.
+  Matching personas for one-off chat: Pi Engineer, Embedded Engineer, CAD Modeler.
+  A compile or a smoke test proves the code RUNS, not that the design is good.
 - **Models** (#/models): installed models, the full Ollama catalog with
   one-click install, and the Image generation (Fooocus) section. CLICK ANY MODEL
   NAME to open its card: what it is best used for (brainstorming, problem

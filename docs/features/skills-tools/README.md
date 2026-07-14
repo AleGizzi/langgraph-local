@@ -169,12 +169,68 @@ Plus a **loop guard** in `_tool_loop`: repeating a tool call with identical
 arguments appends a warning to the result, because small models otherwise re-run
 a failing test indefinitely without changing anything.
 
+5. **`_agent_system_prompt` told every agent to deliver files as `File:` blocks**
+   — including agents holding execution tools. Offered both routes, a small model
+   takes the text one: the Verifier would "fix" a file by *printing* it, run
+   nothing, and report success. It happened twice, and both times the output only
+   passed by luck. Agents that can execute (`run_python`, `arduino_compile`,
+   `check_stl`) now get the opposite instruction — files change only through
+   tools, and every claim needs a tool result behind it. Builders keep the
+   convention: it is their delivery path and a safety net when they fail to call
+   `write_file`.
+6. **A missing path now lists the files that ARE there.** A model that guesses
+   `/path/to/smoke_test.py`, and is told only that it does not exist, calls again
+   with the same placeholder. `tools._missing()` names the real files and the
+   mistake dies in one round.
+
 Honest limits: this is a 7B doing a multi-step repair loop, so it is
 probabilistic, not deterministic — a run takes 10–20 minutes and can still end
 short of green, in which case the Verifier reports the last traceback rather than
 faking success. The Builder tends to reach for sqlite when left alone, which is
 why the Spec agent is instructed to specify an in-memory dict unless persistence
 was actually requested; simple state is what a 7B can get right first time.
+
+### Hardware & 3D teams — Raspberry Pi Lab, Arduino Forge, 3D Model Forge
+
+Same shape as the Flask factory (**Spec → Builder → Verifier**, pipeline), and
+the same rule: the Verifier may not *claim* the output works, it must show a tool
+result proving it. What differs is how each domain is made checkable without the
+hardware in front of you:
+
+| Team | Verifier's proof | Why it works with no hardware |
+|---|---|---|
+| 🍓 Raspberry Pi Lab | `run_python` on `smoke_test.py` | gpiozero's **mock pin factory** executes real Pi code on this machine; `led.is_lit`, `pwm.value` become genuinely checkable values |
+| 🔌 Arduino Forge | `arduino_compile` (real AVR toolchain) | `arduino-cli` compiles for an actual Uno — a sketch that doesn't build cannot be declared done |
+| 🧊 3D Model Forge | `run_python` → `check_stl` | trimesh generates the STL, then it is checked **watertight**, single-body, positive volume — a model cannot fake a printable mesh |
+
+Setup these depend on (`requirements.txt` covers the pip side):
+
+```bash
+pip install gpiozero trimesh numpy scipy manifold3d
+curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=~/.local/bin sh
+arduino-cli core install arduino:avr      # ~300MB, the AVR compiler
+```
+
+Two non-obvious things, both of which cost a run to discover:
+
+- **`GPIOZERO_MOCK_PIN_CLASS=MockPWMPin` is not optional.** The default mock pin
+  raises `PinPWMUnsupported`, so *every* program that fades, dims or drives a
+  servo would fail verification for a reason that has nothing to do with the
+  code. `run_python` sets it.
+- **The Pi Verifier must never run `main.py`** — that is where the interactive
+  `while True:` lives, so running it just blocks until the 30s timeout and proves
+  nothing. It runs `smoke_test.py`, which imports `main.py` and drives its
+  functions. This is why the skill insists nothing executes at import.
+
+`check_stl` reports the failures a model actually makes: **not watertight**
+(parts touched instead of overlapping, so the boolean left a seam), **disconnected
+bodies** (a part floats free), and **zero/negative volume** (inverted normals).
+
+Honest limit worth repeating: a compile is not a behaviour check. The Arduino
+traffic light we verified compiles cleanly at 1278 bytes and is genuinely
+uploadable — but it polls its button between blocking `delay()` phases, which no
+compiler will ever complain about. These teams guarantee the output *runs*, not
+that the design is good; that is what the Code Reviewer skill is for.
 
 `run_python` deserves its own warning: it executes real Python with the user's
 permissions. It is confined to the run workspace and killed after 30s, but a

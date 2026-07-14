@@ -540,12 +540,32 @@ class TeamRunner:
             "\n\nRules: Do the work directly and completely. Never ask the user "
             "questions. Produce clean, final, well-formatted Markdown output. "
             "Do not include meta commentary about being an AI."
-            "\nWhen your deliverable includes files (code, configs, docs), output "
-            "EACH complete file as a fenced code block immediately preceded by a "
-            "line of the form `File: relative/path.ext` — those files are saved "
-            "to the run workspace automatically, so never abbreviate their "
-            "contents or use placeholders."
         )
+        # An agent that can EXECUTE (run code, compile, validate) must not also be
+        # told to deliver files as `File:` text blocks. Offered both, a small model
+        # takes the text route — so a verifier "fixes" a file by printing it, never
+        # runs anything, and reports success having executed nothing. Builders keep
+        # the convention: it is their delivery path and a safety net when they fail
+        # to call write_file.
+        can_execute = any(t in (agent.get("tools") or [])
+                          for t in ("run_python", "arduino_compile", "check_stl"))
+        if can_execute:
+            rules += (
+                "\nYou have tools that actually run things. Files change ONLY through "
+                "write_file / edit_file, and correctness is established ONLY by running "
+                "your tools. Do NOT print a file as a `File:` block or a code fence and "
+                "call it delivered — text in your reply changes nothing on disk and "
+                "verifies nothing. Every claim you make about whether something works "
+                "must be backed by a tool result in this conversation."
+            )
+        else:
+            rules += (
+                "\nWhen your deliverable includes files (code, configs, docs), output "
+                "EACH complete file as a fenced code block immediately preceded by a "
+                "line of the form `File: relative/path.ext` — those files are saved "
+                "to the run workspace automatically, so never abbreviate their "
+                "contents or use placeholders."
+            )
         return base + rules
 
     def _worker_node(self, agent: dict):

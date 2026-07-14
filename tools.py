@@ -8,6 +8,7 @@ import html
 import operator as op
 import os
 import re
+import shutil
 import subprocess
 import sys
 from urllib.parse import unquote
@@ -108,6 +109,23 @@ def read_webpage(url: str) -> str:
     return text[:8000] + ("\n…[truncated]" if len(text) > 8000 else "")
 
 
+def _missing(path: str, root: str) -> str:
+    """Error for a path that isn't there — naming what IS there.
+
+    Models reach for placeholder paths ('/path/to/smoke_test.py') and, told only
+    that the file is absent, call again with the same placeholder. Listing the
+    real files corrects the mistake in one round instead of burning the budget.
+    """
+    try:
+        have = sorted(f for f in os.listdir(root) if not f.startswith((".", "__")))
+    except OSError:
+        have = []
+    listing = ", ".join(have) if have else "(workspace is empty)"
+    return (f"Error: {path} does not exist in the workspace. "
+            f"Files here: {listing}. Use a plain relative path, e.g. 'smoke_test.py' — "
+            "not an absolute path and not a placeholder.")
+
+
 def _head(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "\n…[truncated]"
 
@@ -137,12 +155,24 @@ def make_run_python(workspace: str):
         if full != root and not full.startswith(root + os.sep):
             return "Error: path escapes the workspace"
         if not os.path.isfile(full):
-            return f"Error: {path} does not exist in the workspace"
+            return _missing(path, root)
         try:
+            # Mock GPIO by default: gpiozero's mock pin factory lets real
+            # Raspberry Pi code execute on a machine with no GPIO header, which
+            # is what makes Pi programs verifiable here at all. MockPWMPin is not
+            # the default and matters — the plain mock pin raises
+            # PinPWMUnsupported, so without it no PWMLED/servo program (anything
+            # that fades, dims or sweeps) could ever be verified.
+            env = {**os.environ, "GPIOZERO_PIN_FACTORY": "mock",
+                   "GPIOZERO_MOCK_PIN_CLASS": "MockPWMPin"}
             p = subprocess.run([sys.executable, full], cwd=root, timeout=30,
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, env=env)
         except subprocess.TimeoutExpired:
-            return "Error: the script did not finish within 30s (infinite loop?)"
+            return (f"Error: {path} did not finish within 30s. Something is looping or "
+                    "blocking — a `while True:`, a `pause()`, or a long sleep running at "
+                    "module level. Move it inside `if __name__ == '__main__':` so that "
+                    "importing the module does not execute it. Do not simply delete the "
+                    "loop.")
         except Exception as e:  # noqa: BLE001
             return f"Error running {path}: {e}"
         parts = [f"exit code: {p.returncode}"]
@@ -158,6 +188,114 @@ def make_run_python(workspace: str):
         return "\n".join(parts)
 
     return run_python
+
+
+def make_arduino_compile(workspace: str):
+    """Build the arduino_compile tool bound to this run's workspace."""
+    root = os.path.realpath(workspace)
+
+    @tool
+    def arduino_compile(path: str, board: str = "uno") -> str:
+        """Compile an Arduino sketch with the real AVR toolchain and report errors.
+
+        `path` is a .ino file in the workspace. `board` is uno, nano, mega or
+        leonardo. A sketch is not working until this returns SUCCESS — compile
+        errors come back with the exact file, line and message.
+        """
+        fqbn = {"uno": "arduino:avr:uno", "nano": "arduino:avr:nano",
+                "mega": "arduino:avr:mega", "leonardo": "arduino:avr:leonardo"}.get(
+                    board.lower())
+        if not fqbn:
+            return "Error: board must be one of uno, nano, mega, leonardo"
+        cli = shutil.which("arduino-cli") or os.path.expanduser("~/.local/bin/arduino-cli")
+        if not os.path.exists(cli):
+            return "Error: arduino-cli is not installed on this machine."
+
+        full = os.path.realpath(os.path.join(root, path.lstrip("/")))
+        if not full.startswith(root + os.sep):
+            return "Error: path escapes the workspace"
+        if not os.path.isfile(full):
+            return _missing(path, root)
+        # arduino-cli requires the sketch to live in a directory of the same
+        # name (Blink/Blink.ino), which models forget constantly — so stage it
+        # into a correct layout instead of failing on a technicality.
+        stem = os.path.splitext(os.path.basename(full))[0]
+        sketch_dir = os.path.join(root, ".build", stem)
+        os.makedirs(sketch_dir, exist_ok=True)
+        shutil.copyfile(full, os.path.join(sketch_dir, f"{stem}.ino"))
+        try:
+            p = subprocess.run([cli, "compile", "--fqbn", fqbn, sketch_dir],
+                               capture_output=True, text=True, timeout=180)
+        except subprocess.TimeoutExpired:
+            return "Error: compile did not finish within 180s"
+        except Exception as e:  # noqa: BLE001
+            return f"Error running arduino-cli: {e}"
+        if p.returncode == 0:
+            usage = [ln for ln in p.stdout.splitlines()
+                     if "program storage" in ln or "dynamic memory" in ln]
+            return "COMPILE SUCCESS for " + board + "\n" + "\n".join(usage)
+        # Errors land on stderr; keep the tail, where the diagnostics are.
+        return "COMPILE FAILED\n" + _tail((p.stderr or p.stdout).strip(), 2500)
+
+    return arduino_compile
+
+
+def make_check_stl(workspace: str):
+    """Build the check_stl tool bound to this run's workspace."""
+    root = os.path.realpath(workspace)
+
+    @tool
+    def check_stl(path: str) -> str:
+        """Inspect an STL and report whether it is actually 3D-printable.
+
+        Checks the mesh is watertight (a printer cannot slice a mesh with holes),
+        has positive volume, is a single connected body, and reports its size in
+        mm. Run this on every STL you generate — a model that looks right in code
+        can still be an unprintable shell.
+        """
+        try:
+            import trimesh
+        except ImportError:
+            return "Error: trimesh is not installed."
+        full = os.path.realpath(os.path.join(root, path.lstrip("/")))
+        if not full.startswith(root + os.sep):
+            return "Error: path escapes the workspace"
+        if not os.path.isfile(full):
+            return _missing(path, root) + " Generate the STL first by running model.py."
+        try:
+            mesh = trimesh.load(full, force="mesh")
+        except Exception as e:  # noqa: BLE001
+            return f"Error: could not read {path} as a mesh: {e}"
+        if mesh.is_empty or len(mesh.faces) == 0:
+            return f"FAIL: {path} contains no geometry."
+
+        x, y, z = mesh.extents
+        bodies = mesh.body_count
+        lines = [
+            f"triangles: {len(mesh.faces)}",
+            f"size: {x:.1f} x {y:.1f} x {z:.1f} mm",
+            f"volume: {mesh.volume / 1000.0:.2f} cm3",
+            f"watertight: {mesh.is_watertight}",
+            f"separate bodies: {bodies}",
+        ]
+        problems = []
+        if not mesh.is_watertight:
+            problems.append("NOT WATERTIGHT — the mesh has holes and a slicer will "
+                            "refuse it or print garbage. Build solids with boolean "
+                            "unions, never loose surfaces.")
+        if mesh.volume <= 0:
+            problems.append("VOLUME IS ZERO OR NEGATIVE — the faces are probably "
+                            "inside-out (inverted normals).")
+        if bodies > 1:
+            problems.append(f"{bodies} DISCONNECTED BODIES — parts float free of each "
+                            "other. Union them, or make them overlap.")
+        if max(mesh.extents) > 300:
+            problems.append(f"{max(mesh.extents):.0f} mm exceeds a typical 256 mm bed.")
+        verdict = "STL OK — printable." if not problems else "STL PROBLEMS:\n- " + \
+                                                             "\n- ".join(problems)
+        return "\n".join(lines) + "\n" + verdict
+
+    return check_stl
 
 
 @tool
@@ -323,6 +461,8 @@ TOOL_CATALOG = {
     "web_search": "Search the web for current information (needs internet)",
     "read_webpage": "Read a web page as clean text (needs internet)",
     "run_python": "Run a Python file from the workspace — executes real code",
+    "arduino_compile": "Compile an Arduino sketch with the real AVR toolchain",
+    "check_stl": "Check an STL is watertight and 3D-printable",
     "files": "Read/write files in the run workspace",
     "knowledge": "Search/read/write the shared knowledge vault",
     "generate_image": "Generate an image locally (needs Fooocus running)",
@@ -445,6 +585,10 @@ def resolve_tools(names: list, workspace: str) -> list:
             tools.append(read_webpage)
         elif n == "run_python":
             tools.append(make_run_python(workspace))
+        elif n == "arduino_compile":
+            tools.append(make_arduino_compile(workspace))
+        elif n == "check_stl":
+            tools.append(make_check_stl(workspace))
         elif n == "files":
             tools.extend(make_workspace_tools(workspace))
         elif n == "knowledge":
