@@ -4,11 +4,25 @@ http_get has strict timeouts.
 """
 import ast
 import datetime
+import html
 import operator as op
 import os
+import re
+import subprocess
+import sys
+from urllib.parse import unquote
 
 import requests
 from langchain_core.tools import tool
+
+
+def _strip_html(raw: str) -> str:
+    """Reduce an HTML document to readable text."""
+    raw = re.sub(r"(?is)<(script|style|nav|footer|svg)[^>]*>.*?</\1>", " ", raw)
+    raw = re.sub(r"(?i)<br\s*/?>|</(p|div|li|h[1-6]|tr)>", "\n", raw)
+    text = html.unescape(re.sub(r"<[^>]+>", " ", raw))
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    return re.sub(r"\n\s*\n\s*\n+", "\n\n", text).strip()
 
 _OPS = {
     ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul, ast.Div: op.truediv,
@@ -52,6 +66,85 @@ def http_get(url: str) -> str:
         return text[:8000] + ("\n...[truncated]" if len(text) > 8000 else "")
     except Exception as e:  # noqa: BLE001
         return f"Error fetching {url}: {e}"
+
+
+@tool
+def web_search(query: str) -> str:
+    """Search the web and return the top results (title, snippet, URL).
+    Use when the task needs current information you don't have. Follow up with
+    read_webpage on a URL to read a promising result in full."""
+    try:
+        r = requests.post(
+            "https://html.duckduckgo.com/html/", data={"q": query}, timeout=15,
+            headers={"User-Agent": "Mozilla/5.0 (local-agents-studio)"})
+        r.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        return f"Error searching: {e}"
+    # DuckDuckGo's HTML endpoint: no API key, no tracking, works offline-ish.
+    hits = re.findall(
+        r'result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>.*?'
+        r'result__snippet"[^>]*>(.*?)</a>',
+        r.text, re.DOTALL)
+    if not hits:
+        return f"No results for '{query}'."
+    out = []
+    for url, title, snippet in hits[:6]:
+        url = unquote(re.sub(r"^.*?uddg=", "", url).split("&")[0]) if "uddg=" in url else url
+        out.append(f"- {_strip_html(title)}\n  {url}\n  {_strip_html(snippet)[:200]}")
+    return "\n".join(out)
+
+
+@tool
+def read_webpage(url: str) -> str:
+    """Fetch a web page and return its readable text (scripts/markup stripped).
+    Use after web_search, or on any URL you need to actually read."""
+    try:
+        r = requests.get(url, timeout=20,
+                         headers={"User-Agent": "Mozilla/5.0 (local-agents-studio)"})
+        r.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        return f"Error fetching {url}: {e}"
+    text = _strip_html(r.text)
+    return text[:8000] + ("\n…[truncated]" if len(text) > 8000 else "")
+
+
+def make_run_python(workspace: str):
+    """Build the run_python tool bound to this run's workspace.
+
+    WARNING: this executes real code with the user's permissions. It is confined
+    to the workspace directory and a 30s timeout, but a script can still do
+    anything Python can — it is opt-in per agent for that reason.
+    """
+    root = os.path.realpath(workspace)
+
+    @tool
+    def run_python(path: str) -> str:
+        """Run a Python file from the workspace and return its output.
+
+        Use this to VERIFY code you wrote actually runs: write the file first
+        (files tool), then run it, then fix whatever the traceback shows.
+        Times out after 30 seconds.
+        """
+        full = os.path.realpath(os.path.join(root, path.lstrip("/")))
+        if full != root and not full.startswith(root + os.sep):
+            return "Error: path escapes the workspace"
+        if not os.path.isfile(full):
+            return f"Error: {path} does not exist in the workspace"
+        try:
+            p = subprocess.run([sys.executable, full], cwd=root, timeout=30,
+                               capture_output=True, text=True)
+        except subprocess.TimeoutExpired:
+            return "Error: the script did not finish within 30s (infinite loop?)"
+        except Exception as e:  # noqa: BLE001
+            return f"Error running {path}: {e}"
+        parts = [f"exit code: {p.returncode}"]
+        if p.stdout.strip():
+            parts.append(f"stdout:\n{p.stdout.strip()[:3000]}")
+        if p.stderr.strip():
+            parts.append(f"stderr:\n{p.stderr.strip()[:2000]}")
+        return "\n".join(parts)
+
+    return run_python
 
 
 @tool
@@ -164,6 +257,9 @@ TOOL_CATALOG = {
     "calculator": "Math expression evaluator",
     "current_datetime": "Current date and time",
     "http_get": "Fetch a URL (needs internet)",
+    "web_search": "Search the web for current information (needs internet)",
+    "read_webpage": "Read a web page as clean text (needs internet)",
+    "run_python": "Run a Python file from the workspace — executes real code",
     "files": "Read/write files in the run workspace",
     "knowledge": "Search/read/write the shared knowledge vault",
     "generate_image": "Generate an image locally (needs Fooocus running)",
@@ -280,6 +376,12 @@ def resolve_tools(names: list, workspace: str) -> list:
             tools.append(current_datetime)
         elif n == "http_get":
             tools.append(http_get)
+        elif n == "web_search":
+            tools.append(web_search)
+        elif n == "read_webpage":
+            tools.append(read_webpage)
+        elif n == "run_python":
+            tools.append(make_run_python(workspace))
         elif n == "files":
             tools.extend(make_workspace_tools(workspace))
         elif n == "knowledge":

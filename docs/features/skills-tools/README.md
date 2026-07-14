@@ -43,10 +43,10 @@ skill- and tool-drafting (the team-drafting half lives in
    "files": [{"file": "...", "tools": ["..."], "error": "string|null"}],
    "template": "python source for a new custom tool file"}
   ```
-  **`builtin` has 6 entries**: `calculator`, `current_datetime`, `http_get`,
-  `files`, `knowledge`, `generate_image` — the old `docs/api.md` prose listed
-  only the first 5 and omitted `generate_image`; fixed here (verified
-  against `tools.TOOL_CATALOG`).
+  **`builtin` has 9 entries**: `calculator`, `current_datetime`, `http_get`,
+  `web_search`, `read_webpage`, `run_python`, `files`, `knowledge`,
+  `generate_image` (verified against `tools.TOOL_CATALOG` — keep this list in
+  sync when you add a builtin, it has gone stale before).
 - `GET /api/tools/files/<filename>` → `{file, code}` (404 if missing).
 - `PUT /api/tools/files/<filename>` `{code}` — writes the file, **reloads
   immediately** so the response reports load errors:
@@ -95,6 +95,50 @@ skill- and tool-drafting (the team-drafting half lives in
   attempt; if that also fails, returns the broken code + error rather than
   looping further.
 
+## The coding-agent skill pack (and what we refused to port)
+
+Eight builtin skills, three builtin tools and one persona were ported from the
+"10 must-have skills for coding agents" list, **adapted for local models**. The
+adaptation is the whole point — porting all ten verbatim would have shipped
+features that quietly fail on a 7B.
+
+| Article skill | What shipped | Why |
+|---|---|---|
+| Code Reviewer | `Code Reviewer` skill | Concrete numeric rules; a 7B follows them |
+| Frontend Design | `Frontend Design` skill | Pure directive; design-system-first |
+| Antigravity bundle | `Brainstorming`, `API Design`, `Systematic Debugging` | The prompt-only members of the bundle |
+| PlanetScale | `Database Schema Review` skill | Kept the schema/index reasoning, **dropped the hosted CLI** — plain SQL, no cloud account |
+| Shannon (autonomous pentest) | `Security Audit` skill | **Defensive only**: finds and fixes vulnerabilities, never writes exploits or attacks anything |
+| Excalidraw | `Diagram First` skill (Mermaid) | Excalidraw's loop is render→*look at the PNG*→fix. That needs vision. Mermaid is text, renders anywhere, and diffs |
+| Browser Use + Valyu | `web_search` + `read_webpage` tools | A 7B cannot drive a visual click-loop. Text search + page reading delivers the actual value (current info, cited) with no API key |
+| Remotion | **not ported** | Programmatic video via React + interpolation math; local models emit broken timing code and the Node toolchain is heavy |
+| Google Workspace | **not ported** | 50+ cloud APIs behind OAuth — breaks invariant 6 (fully local) |
+
+Rules of thumb this produced, worth reusing when writing any new skill:
+
+- **Local models follow countable rules, not taste.** "Functions longer than 30
+  lines" works; "write elegant code" does nothing.
+- **Say what does *not* count as an excuse.** The Code Reviewer skill originally
+  said "missing error handling on I/O, network, parsing" — qwen2.5-coder:7b
+  read that literally and skipped an unguarded `d["value"]`, reasoning "this
+  function does no I/O". The rule now names dict access, indexing, conversion
+  and division explicitly.
+- **Never give a model a phrase it can append unconditionally.** "If a pass
+  finds nothing, say 'Pass 1: clean'" produced a review that listed four issues
+  *and then declared itself clean*. Escape hatches must be spelled out as
+  mutually exclusive with the finding list.
+
+`run_python` deserves its own warning: it executes real Python with the user's
+permissions. It is confined to the run workspace and killed after 30s, but a
+script it runs can still do anything Python can. It is opt-in per agent for that
+reason — the point is letting a coding agent *verify its own code runs* instead
+of hallucinating that it does.
+
+Known gap: `Diagram First` emits a ```` ```mermaid ```` block that the UI renders
+as a fenced code block, not a picture — the Markdown renderer has no Mermaid
+support yet. The output is still valid and pasteable; wiring an actual renderer
+is a follow-up.
+
 ## Gotchas
 
 - **Custom tool code execution is not sandboxed.** `PUT /api/tools/files/<f>`
@@ -103,6 +147,19 @@ skill- and tool-drafting (the team-drafting half lives in
   unauthenticated, localhost-only app (`CLAUDE.md`: "no auth… single-user by
   design") — do not expose this endpoint, or the app generally, to a
   network without adding your own front door.
+- **New builtin skills/personas need `seeds.backfill_builtins()`, not just a
+  `SEED_*` entry.** `seed_if_empty()` only fires on a virgin database, so
+  anything added to `SEED_SKILLS`/`SEED_PERSONAS` later would never reach an
+  existing install. `backfill_builtins()` inserts what's missing by name and
+  records what it has already offered in the `meta` table — so a builtin the
+  user *deletes* stays deleted instead of resurrecting on every restart, and one
+  they *edited* is never overwritten. The same applies to the one-shot
+  `personas_skills_attached` flag, which attaches new skills to pre-existing
+  builtin personas (Architect, Code Reviewer, Brainstormer) exactly once.
+- **Check `SEED_PERSONAS` for a name collision before adding one.** Personas are
+  matched by name; `Architect`, `Code Reviewer` and `Brainstormer` already
+  existed, and adding second entries with the same names would have created
+  duplicate rows on a fresh DB.
 - `docs/api.md`'s builtin tool list was stale (missing `generate_image`) —
   verify against `tools.TOOL_CATALOG` if you add/remove a builtin, since
   it's easy for prose docs to drift from the dict.
@@ -134,3 +191,17 @@ skill- and tool-drafting (the team-drafting half lives in
    loads cleanly (or that the one auto-fix round produced working code).
 5. `POST /api/wizard {kind:"skill", ...}` and confirm the draft's
    `instructions` read as imperative directives, not a description.
+6. **Skill pack** (as verified on 2026-07-13, real models, no mocks):
+   - `Code Reviewer` on `qwen2.5-coder:7b` against a function with an unguarded
+     `d["value"]` and a `total / len(result)` — it must flag the division and
+     the dict access, return corrected code and an Issue/Severity/Fix table, and
+     must **not** print "Pass 1: clean" while listing issues.
+   - `Web Researcher` persona on `qwen2.5:7b` — confirm `tool_call:web_search`
+     fires and the answer carries real URLs. (It typically answers from search
+     snippets without calling `read_webpage`; that is a known local-model
+     shortcut, not a bug.)
+   - `Diagram First` on `qwen2.5:7b` — output must open with a valid ```mermaid
+     block with labelled edges.
+   - `tools.make_run_python(ws)` — a good script returns `exit code: 0` +
+     stdout, a raising script returns the traceback on stderr, and
+     `../../../etc/passwd` returns "path escapes the workspace".

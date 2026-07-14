@@ -36,8 +36,15 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   "🪄 Describe an agent" drafts a persona from a description.
 - **Skills & Tools** (#/toolbox): SKILLS are prompt directives that shape agent
   behavior; TOOLS are Python functions agents can call (builtin ones like
-  calculator/http_get/files/knowledge/generate_image, plus custom .py files).
-  Both can be created by hand or with an AI wizard.
+  calculator/http_get/web_search/read_webpage/run_python/files/knowledge/
+  generate_image, plus custom .py files). Both can be created by hand or with
+  an AI wizard. Builtin skills include a coding-agent pack — Code Reviewer,
+  Frontend Design, Security Audit (defensive), API Design, Database Schema
+  Review, Systematic Debugging, Diagram First (Mermaid) and Brainstorming —
+  attached to the Code Reviewer, Frontend Designer, Security Auditor, Architect
+  and Brainstormer personas. The Web Researcher persona has web_search +
+  read_webpage. run_python executes real code from the run workspace, so only
+  enable it on agents you trust.
 - **Models** (#/models): installed models, the full Ollama catalog with
   one-click install, and the Image generation (Fooocus) section. CLICK ANY MODEL
   NAME to open its card: what it is best used for (brainstorming, problem

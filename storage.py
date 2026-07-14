@@ -91,6 +91,10 @@ CREATE TABLE IF NOT EXISTS events (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id, seq);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -100,6 +104,19 @@ def _conn():
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     return c
+
+
+def get_meta(key: str, default=None):
+    with _conn() as c:
+        r = c.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return json.loads(r["value"]) if r else default
+
+
+def set_meta(key: str, value):
+    with _conn() as c:
+        c.execute("INSERT INTO meta (key, value) VALUES (?,?) "
+                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                  (key, json.dumps(value)))
 
 
 def init_db():
