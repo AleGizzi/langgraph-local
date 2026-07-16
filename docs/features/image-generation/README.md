@@ -172,7 +172,7 @@ negative=negative)` with **default** aspect ratio and performance mode (no
 
 `GET /api/imagegen/modes` lists what can be done; `POST /api/imagegen/modify`
 does it. Body: `{image, mode, prompt, negative, performance, loras, weight,
-outpaint, aspect}` where **`image`** is a data URL, raw base64, or the filename
+outpaint, mask, aspect}` where **`image`** is a data URL, raw base64, or the filename
 of an image already in the gallery. Response is the same `{ok, images, error}`
 shape as `/generate`.
 
@@ -184,7 +184,13 @@ takes the source image as base64, unlike v1's multipart):
 | `vary_subtle` / `vary_strong` | `/v2/generation/image-upscale-vary` | re-diffuse the image, guided by your prompt (classic img2img) |
 | `upscale_1_5x` / `upscale_2x` / `upscale_fast` | same | enlarge; `upscale_fast` skips re-diffusion and is the quick one |
 | `style` / `structure` / `depth` / `face` | `/v2/generation/image-prompt` | ControlNet: `ImagePrompt` (borrow look/content), `PyraCanny` (keep composition), `CPDS` (keep shapes/depth), `FaceSwap`. `weight`/`stop` control influence |
+| `inpaint` | `/v2/generation/image-inpaint-outpaint` | repaint ONLY the masked region (`mask`: white-on-black base64/data URL, `needs_mask` in `/modes`); the prompt goes to `inpaint_additional_prompt` ("what fills the hole") |
 | `outpaint` | `/v2/generation/image-inpaint-outpaint` | extend the image outward (`outpaint: ["Left","Right","Top","Bottom"]`) — no mask needed |
+
+Every mode also carries a plain-language `description` (returned by
+`GET /api/imagegen/modes`, shown under the UI's "What to do with it" dropdown)
+— keep them updated when adding modes; they are the user's only explanation of
+what each mode does.
 
 `imagegen._run_job()` is shared by `generate()` and `modify()` (post → poll →
 save → write the metadata sidecar), so modified images get the same prompt
@@ -192,9 +198,25 @@ tracking, LoRA support and speed presets. UI: the "🖼️ Modify an existing im
 panel in `ImageGen.jsx` — drop/browse a file **or** click any image already in
 the gallery, choose a mode, and go.
 
-**Not implemented:** inpainting with a hand-painted mask (the endpoint supports
-`input_mask`, but it needs a mask-painting canvas in the UI). Outpaint covers
-the maskless half of that endpoint.
+**Inpaint mask UI:** `MaskCanvas.jsx` overlays a paint canvas on the source
+image at its *natural* resolution (so the mask always matches the source
+pixels), with brush/eraser/size/clear. Strokes export as solid white on black
+— the polarity Fooocus expects (white = repaint). The modify request refuses
+to queue without a painted mask; `imagegen.modify()` re-checks server-side.
+
+### Fooocus's own web UI (standalone)
+
+The API install is headless, so a separate shallow clone of the full Fooocus
+repo lives at `~/.local/share/local-agents-studio/fooocus-ui`. Its `config.txt`
+points every model path at the fooocus-api tree (the 6.7GB checkpoint is
+shared, nothing re-downloads) and it reuses the **fooocus-api venv** — its 24
+pinned requirements matched exactly at install time, so `launch.py` skips pip.
+`GET /api/imagegen/ui` (status) / `POST /api/imagegen/ui/start|stop` manage it;
+`start` **stops the API server first** — one 4GB GPU, mutually exclusive.
+`providers.image_server_running()` also pings port 7865 so Ollama stays
+CPU-only while the standalone UI holds the GPU. UI: the "🎛️ Prefer Fooocus's
+own interface?" strip on the Models page (shown in both server-up and
+server-down states).
 
 ### Prompt assistant, job queue, and the prompt library
 

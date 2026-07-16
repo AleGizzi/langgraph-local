@@ -217,6 +217,7 @@ def _run_worker():
                     weight=params.get("weight", 0.6),
                     stop=params.get("stop", 0.5),
                     outpaint=params.get("outpaint"),
+                    mask=params.get("mask"),
                     aspect=params.get("aspect") or "1152*896",
                     on_job_id=on_job_id)
         except Exception as e:  # noqa: BLE001 - the worker must never die

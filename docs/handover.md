@@ -22,9 +22,10 @@ generation via Fooocus; pixel studio; file delivery from agent output
 2. **LM Studio integration is best-effort** — `lms get` is far less predictable
    than Ollama's API. If it matters, drive LM Studio's OpenAI-compat `/v1`
    more and the CLI less.
-3. **Chat has no tool delegation** — team runs delegate tool work for non-tool
-   models; chat only surfaces a guidance error. Port `_delegate_loop` usage
-   into `engine.chat_stream` if chat tool use matters.
+3. ~~Chat has no tool delegation~~ — **fixed 2026-07-14**: `chat_stream` now
+   delegates tool work for non-tool models via the same DELEGATE protocol as
+   team runs (verified gemma3:4b → qwen2.5:7b → calculator). See
+   `docs/features/chat/README.md`.
 4. **Knowledge search is linear scan** — fine for hundreds of notes; if vaults
    grow large, add an index (sqlite FTS5 fits the codebase style).
 5. **No unit-test suite** — verification is by driving the app. If contributors

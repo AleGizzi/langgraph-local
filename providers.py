@@ -19,14 +19,55 @@ FOOOCUS_URL = os.environ.get("FOOOCUS_URL", "http://localhost:8888")
 _gpu_guard = {"ts": 0.0, "up": False}
 
 
+_ctx_limit_cache = {}
+
+
+def model_context_limit(provider: str, model: str):
+    """The model's maximum context length in tokens, or None if unknown.
+
+    This is the architectural ceiling (e.g. 32768 for qwen2.5) — the window
+    actually in effect is `num_ctx`, which is usually much smaller. Cached
+    per model; the value never changes for a given weights file.
+    """
+    key = (provider, model)
+    if key in _ctx_limit_cache:
+        return _ctx_limit_cache[key]
+    limit = None
+    if provider == "ollama":
+        try:
+            r = requests.post(f"{OLLAMA_URL}/api/show", json={"model": model},
+                              timeout=10)
+            r.raise_for_status()
+            info = r.json().get("model_info") or {}
+            for k, v in info.items():
+                if k.endswith(".context_length") and isinstance(v, int):
+                    limit = v
+                    break
+        except requests.RequestException:
+            return None  # provider down — don't cache, retry next time
+    _ctx_limit_cache[key] = limit
+    return limit
+
+
+FOOOCUS_UI_PORT = os.environ.get("FOOOCUS_UI_PORT", "7865")
+
+
 def image_server_running() -> bool:
     now = time.time()
     if now - _gpu_guard["ts"] > 10:
+        up = False
         try:
             requests.get(f"{FOOOCUS_URL}/ping", timeout=0.7)
-            _gpu_guard["up"] = True
+            up = True
         except requests.RequestException:
-            _gpu_guard["up"] = False
+            # Fooocus's own web UI (optional standalone install) holds the GPU
+            # just as hard as the API server — Ollama must stay on CPU for it.
+            try:
+                requests.get(f"http://127.0.0.1:{FOOOCUS_UI_PORT}/", timeout=0.7)
+                up = True
+            except requests.RequestException:
+                up = False
+        _gpu_guard["up"] = up
         _gpu_guard["ts"] = now
     return _gpu_guard["up"]
 

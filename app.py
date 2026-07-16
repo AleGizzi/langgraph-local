@@ -22,18 +22,24 @@ app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.config["JSON_AS_ASCII"] = False
 
 storage.init_db()
-storage.mark_stale_runs()
-seeds.seed_if_empty()
 
-# Kick a background catalog refresh at startup if the cache is stale
-# (get_catalog handles the staleness check; no-op when fresh or offline).
-import catalog as _catalog  # noqa: E402
-_catalog.get_catalog(auto_refresh=True)
+# Startup side effects (marking orphaned runs, seeding, queue workers) must NOT
+# fire when this module is merely imported by tooling — an `import app` syntax
+# check once marked a live run "Interrupted by server restart" because these
+# ran against the real database. Set AGENTS_SKIP_STARTUP=1 for such imports.
+if not os.environ.get("AGENTS_SKIP_STARTUP"):
+    storage.mark_stale_runs()
+    seeds.seed_if_empty()
 
-# Recover image jobs a restart interrupted (resumes polling in-flight Fooocus
-# jobs so their images aren't lost) and start the queue worker.
-import imgqueue as _imgqueue  # noqa: E402
-_imgqueue.start()
+    # Kick a background catalog refresh at startup if the cache is stale
+    # (get_catalog handles the staleness check; no-op when fresh or offline).
+    import catalog as _catalog  # noqa: E402
+    _catalog.get_catalog(auto_refresh=True)
+
+    # Recover image jobs a restart interrupted (resumes polling in-flight
+    # Fooocus jobs so their images aren't lost) and start the queue worker.
+    import imgqueue as _imgqueue  # noqa: E402
+    _imgqueue.start()
 
 # Used by the SPA to detect that the server (and likely the bundle) changed
 # under an open tab, and offer a reload instead of running stale code.
@@ -326,9 +332,13 @@ def imagegen_generate():
 def imagegen_modes():
     """The ways an existing image can be modified (for the UI's mode picker)."""
     import imagegen
-    return jsonify({"modes": [{"key": k, "label": v["label"],
-                               "needs_prompt": "cn_type" in v or "Vary" in v.get("uov_method", "")}
-                              for k, v in imagegen.MODIFY_MODES.items()]})
+    return jsonify({"modes": [
+        {"key": k, "label": v["label"],
+         "description": v.get("description", ""),
+         "needs_mask": bool(v.get("needs_mask")),
+         "needs_prompt": ("cn_type" in v or "Vary" in v.get("uov_method", "")
+                          or v.get("needs_mask", False))}
+        for k, v in imagegen.MODIFY_MODES.items()]})
 
 
 @app.post("/api/imagegen/modify")
@@ -344,8 +354,28 @@ def imagegen_modify():
         prompt=body.get("prompt", ""), negative=body.get("negative", ""),
         performance=body.get("performance"), loras=body.get("loras"),
         weight=body.get("weight", 0.6), stop=body.get("stop", 0.5),
-        outpaint=body.get("outpaint"),
+        outpaint=body.get("outpaint"), mask=body.get("mask"),
         aspect=body.get("aspect") or "1152*896"))
+
+
+@app.get("/api/imagegen/ui")
+def imagegen_ui_status():
+    """Fooocus's own web UI (optional standalone install): installed/running."""
+    import imagegen
+    return jsonify(imagegen.ui_status())
+
+
+@app.post("/api/imagegen/ui/start")
+def imagegen_ui_start():
+    """Start Fooocus's own UI (stops the API server first — one GPU)."""
+    import imagegen
+    return jsonify(imagegen.start_ui_server())
+
+
+@app.post("/api/imagegen/ui/stop")
+def imagegen_ui_stop():
+    import imagegen
+    return jsonify(imagegen.stop_ui_server())
 
 
 @app.post("/api/imagegen/prompt-assist")
@@ -574,9 +604,14 @@ def chat():
         except Exception as e:  # noqa: BLE001
             msg = f"{type(e).__name__}: {e}"
             if "does not support tools" in msg.lower():
-                msg += (" — this model can't call tools in chat. Remove its tools "
-                        "here, or use it in a team run where tool work is "
-                        "delegated to a capable model automatically.")
+                # The catalog thought this model could bind tools and the
+                # provider disagreed — remember that, so the NEXT message goes
+                # down the delegation path instead of erroring again.
+                engine._mark_no_tools(agent.get("provider", "ollama"),
+                                      agent.get("model", ""))
+                msg += (" — this model can't call tools natively. Send your "
+                        "message again: tool work will now be delegated to a "
+                        "tool-capable model automatically.")
             yield _sse({"type": "error", "content": msg})
 
     return Response(generate(), mimetype="text/event-stream",

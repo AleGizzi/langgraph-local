@@ -4,6 +4,42 @@ import { useApp } from "../App.jsx";
 import AgentFields from "../components/AgentFields.jsx";
 import { Md } from "../lib/markdown.jsx";
 
+const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+
+/* Context-window gauge: how full the model's working memory is. Numbers come
+ * from the server's `usage` SSE event (real token counts when the provider
+ * reports them, a chars/4 estimate otherwise — we show whichever is larger,
+ * because Ollama under-reports cached prompt tokens). */
+function ContextGauge({ usage, msgCount, onNewChat }) {
+  if (!usage) return null;
+  const reported = (usage.input_tokens || 0) + (usage.output_tokens || 0);
+  const used = Math.max(reported, usage.est_tokens || 0);
+  const ctx = usage.num_ctx || 8192;
+  const pct = Math.min(100, Math.round((used / ctx) * 100));
+  const level = pct >= 85 ? "hot" : pct >= 60 ? "warm" : "ok";
+  const canGrow = usage.model_max && usage.model_max > ctx;
+  return (
+    <div className={"ctx-gauge " + level}
+      title={`Context window: ~${fmtK(used)} of ${fmtK(ctx)} tokens in use (${pct}%).\n`
+        + `Everything above 100% gets forgotten, oldest first.`
+        + (canGrow ? `\nThis model supports up to ${fmtK(usage.model_max)} — raise `
+          + `"Context window" (num_ctx) in settings to give it more memory (uses more RAM).` : "")}>
+      <div className="ctx-bar"><div className="ctx-fill" style={{ width: `${pct}%` }} /></div>
+      <span className="ctx-text">
+        🧠 {fmtK(used)} / {fmtK(ctx)} tokens ({pct}%) · {msgCount} messages
+        {usage.tok_s ? ` · ${usage.tok_s} tok/s` : ""}
+      </span>
+      {level === "hot" && (
+        <span className="ctx-warn">
+          context nearly full — the model starts forgetting the oldest messages.
+          <button className="btn sm" style={{ marginLeft: 6, padding: "1px 8px" }}
+            onClick={onNewChat}>＋ Start a new chat</button>
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function Chat({ personaId = null }) {
   const { models } = useApp();
   const [personas, setPersonas] = useState([]);
@@ -17,6 +53,7 @@ export default function Chat({ personaId = null }) {
   const [showConfig, setShowConfig] = useState(true);
   const [chats, setChats] = useState([]);
   const [chatId, setChatId] = useState(null);
+  const [usage, setUsage] = useState(null);
   const abortRef = useRef(null);
   const endRef = useRef(null);
   const chatIdRef = useRef(null);
@@ -55,7 +92,7 @@ export default function Chat({ personaId = null }) {
     } catch { /* persistence is best-effort */ }
   };
 
-  const newChat = () => { setChatId(null); setMessages([]); };
+  const newChat = () => { setChatId(null); setMessages([]); setUsage(null); };
 
   const openChat = async (c) => {
     try {
@@ -63,6 +100,12 @@ export default function Chat({ personaId = null }) {
       setChatId(full.id);
       setMessages(full.messages.map((m) => ({ ...m, tools: [] })));
       if (full.agent?.model) setAgent(full.agent);
+      // Until the next reply brings real numbers, estimate the reopened
+      // conversation's context fill so the gauge isn't blank.
+      const est = Math.round(full.messages.reduce(
+        (n, m) => n + (m.content || "").length, 0) / 4);
+      setUsage({ est_tokens: est, input_tokens: 0, output_tokens: 0, tok_s: null,
+        num_ctx: +(full.agent?.params?.num_ctx) || 8192, model_max: null });
     } catch (e) { toast(e.message, true); }
   };
 
@@ -150,6 +193,8 @@ export default function Chat({ personaId = null }) {
             patch((m) => ({ ...m, content: m.content + ev.content }));
           } else if (ev.type === "tool_call" || ev.type === "tool_result") {
             patch((m) => ({ ...m, tools: [...m.tools, { type: ev.type, text: ev.content }] }));
+          } else if (ev.type === "usage") {
+            setUsage(ev);
           } else if (ev.type === "done") {
             patch((m) => ({ ...m, content: ev.content || m.content, live: false }));
           } else if (ev.type === "error") {
@@ -202,7 +247,7 @@ export default function Chat({ personaId = null }) {
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             {messages.length > 0 && (
-              <button className="btn" onClick={() => setMessages([])}>🧹 Clear</button>
+              <button className="btn" onClick={() => { setMessages([]); setUsage(null); }}>🧹 Clear</button>
             )}
             <button className="btn" onClick={() => setShowConfig(!showConfig)}>
               {showConfig ? "Hide settings" : "⚙️ Settings"}
@@ -240,6 +285,8 @@ export default function Chat({ personaId = null }) {
           ))}
           <div ref={endRef} />
         </div>
+
+        <ContextGauge usage={usage} msgCount={messages.length} onNewChat={newChat} />
 
         <div className="chat-inputbar">
           <textarea

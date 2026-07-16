@@ -374,6 +374,103 @@ def stop_server() -> dict:
     return {"ok": True, "error": None}
 
 
+# ---------------- Fooocus's own web UI (optional, separate install) ----------
+# The API install (fooocus-api) is headless; the full Fooocus repo ships a
+# Gradio UI. When cloned next to it as `fooocus-ui` (config.txt pointing at the
+# API install's model folders, so the 6.7GB checkpoint is shared), we can run
+# it standalone. Its pinned requirements matched the fooocus-api venv exactly
+# at install time, so it reuses that venv — no second torch.
+FOOOCUS_UI_DIR = os.environ.get(
+    "FOOOCUS_UI_DIR",
+    os.path.join(os.path.dirname(FOOOCUS_DIR), "fooocus-ui"))
+FOOOCUS_UI_PORT = int(os.environ.get("FOOOCUS_UI_PORT", "7865"))
+
+
+def _find_ui_pids() -> list:
+    launch_py = os.path.join(FOOOCUS_UI_DIR, "launch.py")
+    pids = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/cmdline", "rb") as f:
+                cmd = f.read().decode("utf-8", "ignore")
+        except OSError:
+            continue
+        if launch_py in cmd:
+            pids.append(int(entry))
+    return pids
+
+
+def ui_status() -> dict:
+    """`running` means Gradio actually answers HTTP — a live launch.py process
+    that isn't serving yet is `starting`, so the UI doesn't open a dead tab."""
+    serving = False
+    try:
+        requests.get(f"http://127.0.0.1:{FOOOCUS_UI_PORT}/", timeout=1.5)
+        serving = True
+    except requests.RequestException:
+        pass
+    return {"installed": os.path.isfile(os.path.join(FOOOCUS_UI_DIR, "launch.py")),
+            "running": serving,
+            "starting": (not serving) and bool(_find_ui_pids()),
+            "url": f"http://127.0.0.1:{FOOOCUS_UI_PORT}",
+            "dir": FOOOCUS_UI_DIR}
+
+
+def start_ui_server() -> dict:
+    """Launch Fooocus's own web UI. Stops the API server first — the 4GB GPU
+    cannot hold two SDXL processes, so they are mutually exclusive."""
+    try:
+        st = ui_status()
+        if st["running"]:
+            return {"ok": True, "url": st["url"], "error": None}
+        if not st["installed"]:
+            return {"ok": False, "url": None,
+                    "error": "Fooocus UI is not installed (expected at "
+                             f"{FOOOCUS_UI_DIR})"}
+        stopped = stop_server()
+        if not stopped["ok"]:
+            return {"ok": False, "url": None,
+                    "error": "could not free the GPU: " + str(stopped["error"])}
+        env = {**os.environ, "GRADIO_SERVER_PORT": str(FOOOCUS_UI_PORT)}
+        log_path = os.path.join(FOOOCUS_UI_DIR, "ui.log")
+        with open(log_path, "ab") as logf:
+            subprocess.Popen(
+                [_venv_python(), os.path.join(FOOOCUS_UI_DIR, "launch.py"),
+                 "--listen", "127.0.0.1", "--always-low-vram",
+                 "--disable-in-browser"],
+                cwd=FOOOCUS_UI_DIR, stdout=logf, stderr=subprocess.STDOUT,
+                start_new_session=True, env=env)
+        return {"ok": True, "url": f"http://127.0.0.1:{FOOOCUS_UI_PORT}",
+                "error": None}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "url": None, "error": f"{type(e).__name__}: {e}"}
+
+
+def stop_ui_server() -> dict:
+    """Terminate the Fooocus UI and verify it is gone (same contract as
+    stop_server: never report a success we can't confirm)."""
+    pids = set(_find_ui_pids())
+    if not pids:
+        return {"ok": True, "error": None}
+    for pid in pids:
+        _kill(pid, signal.SIGTERM)
+    for _ in range(20):
+        time.sleep(0.5)
+        if not _find_ui_pids():
+            break
+    else:
+        for pid in _find_ui_pids():
+            _kill(pid, signal.SIGKILL)
+        time.sleep(1)
+    remaining = _find_ui_pids()
+    if remaining:
+        return {"ok": False, "error": f"Fooocus UI still running "
+                                      f"(pid {remaining[0]}) — kill it manually"}
+    return {"ok": True, "error": None}
+
+
 def _save_result_items(items) -> list:
     os.makedirs(IMAGES_DIR, exist_ok=True)
     saved = []
@@ -554,27 +651,64 @@ def _run_job(path: str, body: dict, meta: dict, on_job_id=None) -> dict:
 MODIFY_MODES = {
     "vary_subtle":   {"endpoint": "/v2/generation/image-upscale-vary",
                       "uov_method": "Vary (Subtle)",
-                      "label": "Vary (subtle) — small changes, same picture"},
+                      "label": "Vary (subtle) — small changes, same picture",
+                      "description": "Re-generates the image staying very close to the "
+                        "original. Good for cleaning up small glitches or getting a "
+                        "slightly different take without changing the composition."},
     "vary_strong":   {"endpoint": "/v2/generation/image-upscale-vary",
                       "uov_method": "Vary (Strong)",
-                      "label": "Vary (strong) — reinterpret it with your prompt"},
+                      "label": "Vary (strong) — reinterpret it with your prompt",
+                      "description": "Re-imagines the image with a lot of freedom, "
+                        "steered by your prompt. The subject and layout survive, the "
+                        "details, style and mood can change a lot."},
     "upscale_1_5x":  {"endpoint": "/v2/generation/image-upscale-vary",
-                      "uov_method": "Upscale (1.5x)", "label": "Upscale 1.5×"},
+                      "uov_method": "Upscale (1.5x)", "label": "Upscale 1.5×",
+                      "description": "Makes the image 1.5× larger and re-diffuses it "
+                        "for real added detail. Slower than the fast upscale but "
+                        "sharper. The prompt is ignored."},
     "upscale_2x":    {"endpoint": "/v2/generation/image-upscale-vary",
-                      "uov_method": "Upscale (2x)", "label": "Upscale 2×"},
+                      "uov_method": "Upscale (2x)", "label": "Upscale 2×",
+                      "description": "Doubles the resolution with re-diffusion for "
+                        "real added detail — the slowest option here. The prompt is "
+                        "ignored."},
     "upscale_fast":  {"endpoint": "/v2/generation/image-upscale-vary",
                       "uov_method": "Upscale (Fast 2x)",
-                      "label": "Upscale 2× (fast, no re-diffusion)"},
+                      "label": "Upscale 2× (fast, no re-diffusion)",
+                      "description": "Doubles the resolution with a plain upscaler — "
+                        "quick and safe, but adds no new detail. Use when you just "
+                        "need a bigger file."},
     "style":         {"endpoint": "/v2/generation/image-prompt", "cn_type": "ImagePrompt",
-                      "label": "Use as style/content reference"},
+                      "label": "Use as style/content reference",
+                      "description": "Generates a NEW image from your prompt, using "
+                        "this one as a look-and-feel reference. 'Influence' controls "
+                        "how strongly it borrows."},
     "structure":     {"endpoint": "/v2/generation/image-prompt", "cn_type": "PyraCanny",
-                      "label": "Keep its composition, restyle with prompt"},
+                      "label": "Keep its composition, restyle with prompt",
+                      "description": "Traces the image's edges and keeps that layout "
+                        "while your prompt repaints everything else — same scene, new "
+                        "style or content."},
     "depth":         {"endpoint": "/v2/generation/image-prompt", "cn_type": "CPDS",
-                      "label": "Keep its shapes/depth, restyle with prompt"},
+                      "label": "Keep its shapes/depth, restyle with prompt",
+                      "description": "Preserves the 3D shapes and spatial depth of the "
+                        "scene while your prompt changes materials, lighting and "
+                        "style. Looser than composition mode."},
     "face":          {"endpoint": "/v2/generation/image-prompt", "cn_type": "FaceSwap",
-                      "label": "Face swap"},
+                      "label": "Face swap",
+                      "description": "Uses the face in this image on whatever your "
+                        "prompt describes. Works best with a clear, front-facing "
+                        "face."},
+    "inpaint":       {"endpoint": "/v2/generation/image-inpaint-outpaint",
+                      "needs_mask": True,
+                      "label": "Inpaint — repaint only the painted area",
+                      "description": "Paint over the part you want changed, describe "
+                        "the replacement in the prompt, and only that region is "
+                        "re-generated — the rest of the image stays untouched. Good "
+                        "for removing objects, changing clothes/colors, fixing hands."},
     "outpaint":      {"endpoint": "/v2/generation/image-inpaint-outpaint",
-                      "label": "Extend the image outward"},
+                      "label": "Outpaint — extend the image outward",
+                      "description": "Grows the canvas in the directions you pick and "
+                        "invents matching content there. The original pixels stay; "
+                        "the prompt (optional) guides what appears in the new areas."},
 }
 
 
@@ -595,9 +729,12 @@ def modify(source: str, mode: str = "vary_strong", prompt: str = "",
            negative: str = "", performance: str = None, loras: list = None,
            styles: list = None, weight: float = 0.6, stop: float = 0.5,
            outpaint: list = None, aspect: str = "1152*896",
-           on_job_id=None) -> dict:
+           mask: str = None, on_job_id=None) -> dict:
     """Modify an EXISTING image (img2img). `source` is a data URL, raw base64,
     or the filename of an image already in the gallery.
+
+    `mask` (inpaint only) is a data URL / base64 image the same size as the
+    source, where WHITE marks the region to repaint and black is kept.
 
     See MODIFY_MODES for what each mode does. Never raises.
     """
@@ -612,6 +749,15 @@ def modify(source: str, mode: str = "vary_strong", prompt: str = "",
         return {"ok": False, "images": [], "error": f"could not read the image: {e}"}
     if not img_b64:
         return {"ok": False, "images": [], "error": "an image is required"}
+    mask_b64 = ""
+    if spec.get("needs_mask"):
+        try:
+            mask_b64 = _as_base64(mask) if mask else ""
+        except (OSError, ValueError) as e:
+            return {"ok": False, "images": [], "error": f"could not read the mask: {e}"}
+        if not mask_b64:
+            return {"ok": False, "images": [],
+                    "error": "inpaint needs a mask — paint over the area to change"}
 
     perf = performance if performance in PERFORMANCE_MODES else DEFAULT_PERFORMANCE
     body = {
@@ -635,6 +781,12 @@ def modify(source: str, mode: str = "vary_strong", prompt: str = "",
             "cn_stop": max(0.0, min(1.0, float(stop or 0.5))),
         }]
         body["aspect_ratios_selection"] = aspect
+    elif spec.get("needs_mask"):                   # inpaint
+        body["input_image"] = img_b64
+        body["input_mask"] = mask_b64
+        # Fooocus treats the additional prompt as "what goes in the hole";
+        # the main prompt still steers the overall pass.
+        body["inpaint_additional_prompt"] = prompt
     else:                                          # outpaint
         body["input_image"] = img_b64
         dirs = [d for d in (outpaint or ["Left", "Right"])

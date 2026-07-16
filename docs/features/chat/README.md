@@ -74,13 +74,30 @@ There is **no** `run_start`, `agent_start`, `agent_end`, or `run_end` in chat
   `engine.chat_stream` directly, with no background thread or `RunManager`
   involved (unlike runs). A long chat generation occupies one of gunicorn's
   worker threads for its full duration.
-- **No tool delegation.** Team runs fall back to a delegate model when the
-  chosen model can't bind tools (`docs/features/teams-runs/`); chat does not
-  — if the model rejects `bind_tools`, the raised error propagates and
-  `app.py`'s wrapper appends a guidance suffix when the message contains
-  "does not support tools", suggesting the user remove tools or switch to a
-  team run.
-- Tool loop bounded by the same `MAX_TOOL_ROUNDS` (5) constant as team runs.
+- **Tool delegation (added 2026-07):** when the chosen model can't bind tools
+  (`engine._model_supports_tools` says no — deepseek-r1, gemma3, …),
+  `chat_stream` picks a tool-capable executor via `engine.pick_delegate_model()`
+  and teaches the main model the same `DELEGATE:` protocol as team runs
+  (`engine.delegate_instructions`). The executor runs the native tool calls
+  (non-streaming `invoke`), each surfaced as normal `tool_call`/`tool_result`
+  events, and the factual result is fed back for the model to continue. A
+  `tool_result` info line ("ℹ … delegated to <model>") announces the fallback
+  at the start of the turn. If the catalog wrongly claimed tool support and the
+  provider rejects `bind_tools` at stream time, `app.py`'s error handler calls
+  `engine._mark_no_tools` so the *next* message takes the delegation path —
+  the user just resends.
+- Tool loop bounded by the same `MAX_TOOL_ROUNDS` constant as team runs
+  (default 14, env-tunable).
+- **Context gauge:** after each turn `chat_stream` emits a `usage` SSE event —
+  `{input_tokens, output_tokens, est_tokens, tok_s, num_ctx, model_max}`.
+  Real counts come from the final chunk's `usage_metadata`/`response_metadata`;
+  `est_tokens` is a deterministic chars/4 estimate over the whole transcript.
+  The UI shows `max(reported, estimate)` because Ollama's `prompt_eval_count`
+  skips KV-cached tokens and under-reports. `model_max` comes from
+  `providers.model_context_limit()` (Ollama `/api/show`, cached). `Chat.jsx`'s
+  `ContextGauge` renders a fill bar against `num_ctx` (green <60%, amber
+  <85%, red ≥85% plus a "start a new chat" nudge), message count and tok/s;
+  reopening a saved chat seeds the gauge with a client-side estimate.
 - History persistence is **client-driven**: `Chat.jsx` calls
   `POST /api/chats` (new) or `PUT /api/chats/:id` (existing) after a turn
   finishes streaming, wrapped in a best-effort try/catch — the server never
@@ -97,9 +114,8 @@ There is **no** `run_start`, `agent_start`, `agent_end`, or `run_end` in chat
 - **All chats share one workspace folder** (`data/workspaces/chat`) — the
   `files` tool has no per-conversation isolation, unlike runs. Two chats
   using `write_file` with the same relative path will clobber each other.
-- Selecting a non-tool-capable model with tools enabled produces a plain
-  error, not a delegated fallback — this is intentional (see CLAUDE.md), but
-  easy to mistake for a bug if you expect run-like delegation behavior.
+- Chat's event set now also includes `usage` (context gauge) — clients that
+  switch on event type must ignore unknown types rather than erroring.
 - **Chat is very slow while the Fooocus image server is running**: the GPU
   coexistence guard forces Ollama to CPU-only, and Fooocus's resident SDXL
   eats most RAM — a 7B reply can take minutes or time out. Stop the image

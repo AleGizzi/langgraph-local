@@ -165,9 +165,13 @@ code rather than by nagging the prompt:
    version on disk. This fires in practice — the passing run shows one refused
    edit, after which the model re-read the file and got it right.
 
-Plus a **loop guard** in `_tool_loop`: repeating a tool call with identical
-arguments appends a warning to the result, because small models otherwise re-run
-a failing test indefinitely without changing anything.
+Plus a **loop guard** in `_tool_loop`. It is *enforced*, not advisory: the
+first repeat of an identical call gets a warning appended to the result; the
+third is **refused outright** without executing (read-only tools exempt). A
+successful `write_file`/`edit_file` resets the counters — "the workspace
+changed, results may differ now". Advisory-only was tried first and a 7B
+ignored it: run 60 re-ran the same failing smoke test 11 times straight
+through the warnings.
 
 5. **`_agent_system_prompt` told every agent to deliver files as `File:` blocks**
    — including agents holding execution tools. Offered both routes, a small model

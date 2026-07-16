@@ -107,13 +107,22 @@ SEED_TEAMS = [
                    "sensible default pins rather than asking. WRITE NO CODE — no `def`, "
                    "no `import`, no code blocks. The Builder writes it.", 0.3),
             _agent("Builder", "Pi engineer", CODER,
-                   "Build the program from the spec. Use write_file to write main.py and "
-                   "smoke_test.py into the workspace. Complete code, no TODOs, no "
-                   "placeholders. Then say which files you wrote.", 0.2,
+                   "Build the program from the spec. Deliver EXACTLY two files with "
+                   "EXACTLY these names: main.py and smoke_test.py — relative paths, "
+                   "never /home/pi/... or any absolute path. Use write_file. Complete "
+                   "code, no TODOs, no placeholders.\n"
+                   "If the Spec mistakenly included code, treat it as a rough sketch "
+                   "only — YOUR skill contract decides the file names and structure, "
+                   "not the Spec's formatting. Then say which files you wrote.", 0.2,
                    tools=["files"], skills=["Runnable Pi Program"]),
             _agent("Verifier", "Verification engineer", GENERAL,
                    "You prove the program runs. YOUR FIRST ACTION IS "
                    "run_python('smoke_test.py') — not a code block, not a summary.\n"
+                   "If the error says smoke_test.py (or main.py) DOES NOT EXIST, the "
+                   "Builder failed to deliver — repair it yourself: read whatever .py "
+                   "files ARE in the workspace (the error lists them), rename/rewrite "
+                   "them with write_file so main.py holds the program and smoke_test.py "
+                   "tests it per your skill contract, then run smoke_test.py.\n"
                    "NEVER run main.py. main.py holds the interactive loop; running it "
                    "just blocks until the 30s timeout and tells you nothing. You run "
                    "smoke_test.py, always — that is the file that imports main.py and "
@@ -677,6 +686,10 @@ SEED_SKILLS = [
         "             while True: ...\n"
         "  4. Pin numbers are BCM (GPIO17, not physical pin 11). State the wiring in a\n"
         "     comment: component, GPIO pin, and the resistor where one is needed.\n"
+        "  4b. PWM values live in [0.0, 1.0] and gpiozero RAISES on anything outside.\n"
+        "     Never `led.value += step` in a loop — it overshoots 1.0 and crashes.\n"
+        "     Clamp: `led.value = min(1.0, led.value + step)`, or use the built-in\n"
+        "     `led.pulse()` / `led.blink(fade_in_time=...)` which handle it for you.\n"
         "  5. Clean up: use `with` or .close(), so a rerun does not find pins in use.\n"
         "SMOKE TEST: import the functions/classes from main.py, drive them, and assert\n"
         "the device state gpiozero exposes — led.is_lit, pwm.value, motor.value. The\n"

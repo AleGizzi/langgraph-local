@@ -44,6 +44,12 @@ This:
 - Waits up to 20 seconds for `/api/health` response
 - Exits with status 1 if startup fails
 
+> **Importing `app` has side effects.** `app.py` runs its startup work
+> (`mark_stale_runs`, seeding, the image-queue worker) at module import — a
+> bare `python -c "import app"` syntax check once marked a live team run
+> "Interrupted by server restart". For tooling imports set
+> `AGENTS_SKIP_STARTUP=1`, which skips all of it.
+
 ### Systemd User Service (Optional)
 
 For persistent background operation without keeping a terminal open:

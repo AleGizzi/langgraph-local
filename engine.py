@@ -84,6 +84,51 @@ def _find_delegate_request(text: str):
     return (m.group(1) or m.group(2) or "").strip() or None
 
 
+def pick_delegate_model():
+    """The tool-capable (provider, model) that executes delegated tool work,
+    or None if no local model can call tools."""
+    if TOOL_DELEGATE_MODEL:
+        prov, sep, mdl = TOOL_DELEGATE_MODEL.partition("::")
+        return (prov, mdl) if sep else ("ollama", TOOL_DELEGATE_MODEL)
+    try:
+        from providers import list_models
+        available = list_models()
+        for prov in ("ollama", "lmstudio"):
+            models = available.get(prov) or []
+            pick = (next((m for m in models if m.startswith("qwen2.5:")), None)
+                    or next((m for m in models
+                             if _model_supports_tools(prov, m)
+                             and not re.search(r"r1|think", m, re.I)), None))
+            if pick:
+                return (prov, pick)
+    except Exception:  # noqa: BLE001 - discovery is best-effort
+        pass
+    return None
+
+
+def delegate_instructions(tool_list) -> str:
+    """System-prompt addendum teaching a tool-less model the DELEGATE protocol."""
+    tool_lines = "\n".join(f"- {t.name}: {(t.description or '').strip()[:150]}"
+                           for t in tool_list)
+    return (
+        "\n\n## TOOL ACCESS — READ CAREFULLY\n"
+        "You cannot run tools yourself. A tool assistant runs them for you. "
+        "Capabilities available through it:\n" + tool_lines + "\n\n"
+        "To use a capability, end your reply with a single line:\n"
+        "DELEGATE: <one clear, self-contained instruction with every needed value>\n"
+        "…and write NOTHING after that line. The assistant's result arrives "
+        "in the next message; then you continue.\n"
+        "Example:\n"
+        "  DELEGATE: search the knowledge base for \"backup policy\" and "
+        "return the note text\n\n"
+        "STRICT RULES:\n"
+        "- NEVER invent, guess or imagine what a capability would return.\n"
+        "- If the task needs stored data, files, a URL or a calculation, "
+        "your FIRST reply must be a DELEGATE line.\n"
+        "- Only write your final answer once you truly have the results."
+    )
+
+
 _CALL_START_RE = re.compile(r'\{\s*"name"\s*:\s*"([A-Za-z0-9_]+)"')
 _ARG_KEYS = ("arguments", "parameters", "args", "input")
 
@@ -246,8 +291,32 @@ def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
                    dict(agent.get("params") or {}))
     tool_list = resolve_tools(agent.get("tools", []), workspace)
     tool_map = {t.name: t for t in tool_list}
-    if tool_list:
+
+    # Models that can't bind tools (deepseek-r1, gemma3, …) delegate tool work
+    # to a tool-capable executor — same DELEGATE protocol as team runs — so
+    # tools work in chat regardless of the model picked.
+    delegate = None
+    if tool_list and not _model_supports_tools(agent.get("provider", "ollama"),
+                                               agent["model"]):
+        delegate = pick_delegate_model()
+        if delegate:
+            system += delegate_instructions(tool_list)
+            yield {"type": "tool_result",
+                   "content": f"ℹ {agent['model']} can't call tools natively — "
+                              f"tool requests are delegated to {delegate[1]}."}
+        else:
+            yield {"type": "tool_result",
+                   "content": "ℹ no tool-capable model available — running "
+                              "without tools."}
+            tool_list, tool_map = [], {}
+    if tool_list and not delegate:
         llm = llm.bind_tools(tool_list)
+
+    executor_llm = None
+    if delegate:
+        executor_llm = make_llm(delegate[0], delegate[1],
+                                {"temperature": 0.1, "num_predict": 1200}
+                                ).bind_tools(tool_list)
 
     msgs = [SystemMessage(content=system)]
     for m in messages:
@@ -255,6 +324,7 @@ def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
         msgs.append(cls(content=str(m.get("content", ""))))
 
     final = ""
+    usage = {"input_tokens": 0, "output_tokens": 0, "tok_s": None}
     for _round in range(MAX_TOOL_ROUNDS + 1):
         full = None
         for chunk in llm.stream(msgs):
@@ -264,7 +334,67 @@ def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
                 yield {"type": "token", "content": text}
         if full is None:
             break
+        # Track real token counts when the provider reports them. input_tokens
+        # of the LAST round is the whole conversation as the model saw it;
+        # output accumulates across tool rounds. Ollama's prompt_eval_count
+        # skips KV-cached tokens, so this can under-report — the UI pairs it
+        # with a deterministic estimate and shows whichever is larger.
+        um = getattr(full, "usage_metadata", None) or {}
+        if um.get("input_tokens"):
+            usage["input_tokens"] = um["input_tokens"]
+        usage["output_tokens"] += um.get("output_tokens") or 0
+        rm = getattr(full, "response_metadata", None) or {}
+        if rm.get("eval_count") and rm.get("eval_duration"):
+            usage["tok_s"] = round(rm["eval_count"] / (rm["eval_duration"] / 1e9), 1)
         content = full.content if isinstance(full.content, str) else str(full.content)
+
+        if delegate:
+            request = _find_delegate_request(content)
+            if not request or _round == MAX_TOOL_ROUNDS:
+                final = _strip_reasoning(
+                    _DELEGATE_BLOCK_RE.sub("", content).strip())
+                break
+            yield {"type": "tool_call",
+                   "content": f"delegate → {delegate[1]}: {request[:220]}"}
+            xmsgs = [SystemMessage(content=(
+                        "You are a precise tool-execution assistant. Fulfill the "
+                        "request using your tools. Reply with only the factual "
+                        "result (values, file paths, retrieved content) — no "
+                        "commentary.")),
+                     HumanMessage(content=request)]
+            result = ""
+            for _x in range(MAX_TOOL_ROUNDS + 1):
+                resp = executor_llm.invoke(xmsgs)
+                xcontent = resp.content if isinstance(resp.content, str) else str(resp.content)
+                xcalls = getattr(resp, "tool_calls", []) or []
+                if not xcalls:
+                    xcalls = salvage_tool_calls(xcontent, tool_map)
+                if not xcalls or _x == MAX_TOOL_ROUNDS:
+                    result = xcontent
+                    break
+                xmsgs.append(AIMessage(content=xcontent, tool_calls=xcalls))
+                for call in xcalls:
+                    name, args = call.get("name"), call.get("args") or {}
+                    yield {"type": "tool_call",
+                           "content": f"{name}({json.dumps(args, ensure_ascii=False)[:300]})"}
+                    fn = tool_map.get(name)
+                    try:
+                        r = fn.invoke(args) if fn else f"Unknown tool {name}"
+                    except Exception as e:  # noqa: BLE001
+                        r = f"Tool error: {e}"
+                    yield {"type": "tool_result", "content": str(r)[:1000]}
+                    xmsgs.append(ToolMessage(content=str(r),
+                                             tool_call_id=call.get("id", name)))
+            msgs.append(AIM(content=content))
+            msgs.append(HumanMessage(content=(
+                f"[Tool assistant result]\n{result}\n\n"
+                "Now ANSWER THE USER'S ORIGINAL QUESTION using this result — "
+                "in plain language, as a normal reply. Do NOT delegate again "
+                "unless the original question truly needs a different "
+                "capability; do not invent extra calculations or follow-up "
+                "steps the user never asked for.")))
+            continue
+
         calls = getattr(full, "tool_calls", []) or []
         if not calls and tool_map:
             calls = salvage_tool_calls(content, tool_map)
@@ -285,6 +415,20 @@ def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
                 result = f"Tool error: {e}"
             yield {"type": "tool_result", "content": str(result)[:1000]}
             msgs.append(ToolMessage(content=str(result), tool_call_id=call.get("id", name)))
+
+    # Context-fill report for the UI gauge: what the window holds now (this
+    # whole conversation + the reply), against the window actually in effect.
+    est = (sum(len(str(getattr(m, "content", ""))) for m in msgs)
+           + len(final)) // 4
+    from providers import model_context_limit
+    yield {"type": "usage",
+           "input_tokens": usage["input_tokens"],
+           "output_tokens": usage["output_tokens"],
+           "est_tokens": est,
+           "tok_s": usage["tok_s"],
+           "num_ctx": int((agent.get("params") or {}).get("num_ctx") or 8192),
+           "model_max": model_context_limit(agent.get("provider", "ollama"),
+                                            agent["model"])}
     yield {"type": "done", "content": final}
 
 
@@ -374,28 +518,9 @@ class TeamRunner:
     # ---------------- tool delegation (models without native tool support) --
 
     def _delegate_model(self):
-        """Pick the tool-capable model that executes delegated tool work."""
+        """Pick (and cache) the tool-capable model that executes delegated tool work."""
         if not hasattr(self, "_delegate_cached"):
-            choice = None
-            if TOOL_DELEGATE_MODEL:
-                prov, sep, mdl = TOOL_DELEGATE_MODEL.partition("::")
-                choice = (prov, mdl) if sep else ("ollama", TOOL_DELEGATE_MODEL)
-            else:
-                try:
-                    from providers import list_models
-                    available = list_models()
-                    for prov in ("ollama", "lmstudio"):
-                        models = available.get(prov) or []
-                        pick = (next((m for m in models if m.startswith("qwen2.5:")), None)
-                                or next((m for m in models
-                                         if _model_supports_tools(prov, m)
-                                         and not re.search(r"r1|think", m, re.I)), None))
-                        if pick:
-                            choice = (prov, pick)
-                            break
-                except Exception:  # noqa: BLE001
-                    choice = None
-            self._delegate_cached = choice
+            self._delegate_cached = pick_delegate_model()
         return self._delegate_cached
 
     def _delegate_loop(self, agent: dict, tool_list: list, msgs: list) -> str:
@@ -419,27 +544,8 @@ class TeamRunner:
         self.emit("decision", agent=name,
                   content=f"{agent['model']} can't call tools natively — tool "
                           f"requests will be delegated to {dmodel}.")
-        tool_lines = "\n".join(f"- {t.name}: {(t.description or '').strip()[:150]}"
-                               for t in tool_list)
-        aug = (
-            "\n\n## TOOL ACCESS — READ CAREFULLY\n"
-            "You cannot run tools yourself. A tool assistant runs them for you. "
-            "Capabilities available through it:\n" + tool_lines + "\n\n"
-            "To use a capability, end your reply with a single line:\n"
-            "DELEGATE: <one clear, self-contained instruction with every needed value>\n"
-            "…and write NOTHING after that line. The assistant's result arrives "
-            "in the next message; then you continue.\n"
-            "Example:\n"
-            "  DELEGATE: search the knowledge base for \"backup policy\" and "
-            "return the note text\n\n"
-            "STRICT RULES:\n"
-            "- NEVER invent, guess or imagine what a capability would return.\n"
-            "- If the task needs stored data, files, a URL or a calculation, "
-            "your FIRST reply must be a DELEGATE line.\n"
-            "- Only write your final answer once you truly have the results."
-        )
         msgs = list(msgs)
-        msgs[0] = SystemMessage(content=msgs[0].content + aug)
+        msgs[0] = SystemMessage(content=msgs[0].content + delegate_instructions(tool_list))
         llm = self._llm_for(agent)
 
         executor_agent = {"name": name, "model": dmodel, "provider": dprov,
@@ -467,10 +573,21 @@ class TeamRunner:
                 emit_tokens=False)
             msgs.append(AIMessage(content=text))
             msgs.append(HumanMessage(content=(
-                f"[Tool assistant result]\n{result}\n\nContinue. Use another "
-                "delegate block if you need more, otherwise give your final "
-                "answer.")))
+                f"[Tool assistant result]\n{result}\n\n"
+                "Now COMPLETE YOUR ORIGINAL TASK using this result — as a "
+                "normal reply. Do NOT delegate again unless the task truly "
+                "needs a different capability; do not invent extra steps "
+                "nobody asked for.")))
         return _DELEGATE_BLOCK_RE.sub("", text).strip()
+
+    # How to read an execution tool's result. A verifier agent's own prose
+    # cannot be trusted about these — run 61's Verifier reported "the smoke
+    # test passed" while its last run_python result was exit code 1.
+    _EXEC_PASS = {
+        "run_python": lambda r: r.startswith("exit code: 0"),
+        "arduino_compile": lambda r: r.startswith("COMPILE SUCCESS"),
+        "check_stl": lambda r: "STL OK" in r,
+    }
 
     def _tool_loop(self, agent: dict, llm, tool_map: dict, msgs: list,
                    emit_tokens: bool = True) -> str:
@@ -479,6 +596,7 @@ class TeamRunner:
         # burning the whole round budget. Nothing in the transcript tells them
         # they are repeating themselves, so we do.
         seen_calls = {}
+        last_exec = None  # (tool_name, passed) of the newest execution-tool result
         for _round in range(MAX_TOOL_ROUNDS + 1):
             self._check_cancel()
             full = None
@@ -501,28 +619,55 @@ class TeamRunner:
                                       f"{', '.join(c['name'] for c in calls)}.")
             response = AIMessage(content=content, tool_calls=calls)
             if not calls or _round == MAX_TOOL_ROUNDS:
-                return _strip_reasoning(response.content)
+                final = _strip_reasoning(response.content)
+                if last_exec and not last_exec[1]:
+                    # The agent may claim anything; the tool results are the
+                    # record. Stamp the truth on the report so downstream agents
+                    # and the user never act on a fabricated pass.
+                    final += (f"\n\n---\n⚠ **[Automatic verification check] NOT "
+                              f"VERIFIED** — the last `{last_exec[0]}` result in "
+                              "this turn FAILED. Any claim of success above is "
+                              "wrong; the work needs another pass.")
+                return final
             msgs.append(response)
             for call in calls:
                 name, args = call.get("name"), call.get("args") or {}
                 self.emit("tool_call", agent=agent["name"],
                           content=f"{name}({json.dumps(args, ensure_ascii=False)[:300]})")
-                fn = tool_map.get(name)
-                try:
-                    result = fn.invoke(args) if fn else f"Unknown tool {name}"
-                except Exception as e:  # noqa: BLE001
-                    result = f"Tool error: {e}"
-
                 sig = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
                 seen_calls[sig] = seen_calls.get(sig, 0) + 1
-                if seen_calls[sig] > 1:
+                fn = tool_map.get(name)
+
+                if seen_calls[sig] > 2 and name not in ("write_file", "edit_file",
+                                                        "read_file", "list_files"):
+                    # Enforced, not advised: a 7B told "stop repeating" repeats
+                    # anyway (run 60 re-ran the same failing test 11 times). The
+                    # third identical execution is refused until an edit changes
+                    # the workspace, which resets the counter below.
                     result = (
-                        f"{result}\n\n[Loop guard] You have now called {name} with these "
-                        f"exact arguments {seen_calls[sig]} times and the result has not "
-                        "changed — repeating it will not change it again. Change "
-                        "something concrete: read the file, fix the specific line the "
-                        "error names, THEN re-run. If you cannot work out the cause, stop "
-                        "and report the last error instead of retrying.")
+                        f"[Loop guard] REFUSED — this is the {seen_calls[sig]}th "
+                        f"identical {name} call and nothing in the workspace has "
+                        "changed, so the result would be identical too. Either fix "
+                        "the code first (read_file the failing file, then edit_file "
+                        "the specific line the last error names), or stop and report "
+                        "the last error as your final answer.")
+                else:
+                    try:
+                        result = fn.invoke(args) if fn else f"Unknown tool {name}"
+                    except Exception as e:  # noqa: BLE001
+                        result = f"Tool error: {e}"
+                    if name in self._EXEC_PASS:
+                        last_exec = (name, self._EXEC_PASS[name](str(result)))
+                    if name in ("write_file", "edit_file") and \
+                            not str(result).startswith("Error"):
+                        # The workspace changed — stale repeat counts no longer apply.
+                        seen_calls.clear()
+                        seen_calls[sig] = 1
+                    elif seen_calls[sig] > 1:
+                        result = (
+                            f"{result}\n\n[Loop guard] Same call, same result, "
+                            f"{seen_calls[sig]} times now. Fix the code before running "
+                            "again — the next identical call will be refused.")
 
                 self.emit("tool_result", agent=agent["name"], content=str(result)[:1000])
                 msgs.append(ToolMessage(content=str(result), tool_call_id=call.get("id", name)))

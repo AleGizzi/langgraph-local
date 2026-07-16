@@ -34,6 +34,22 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   card with a creature sprite (species = model family, evolution = model size),
   stats, tools and abilities. 💬 buttons start a chat as that persona.
   "🪄 Describe an agent" drafts a persona from a description.
+- **Chat extras**: a context gauge above the input shows how full the model's
+  context window is (tokens used vs num_ctx, message count, tok/s) — when it
+  goes red the model starts forgetting the oldest messages, so start a new
+  chat. Models that can't call tools natively (deepseek-r1, gemma3…) still get
+  tools in chat: their tool requests are delegated to a tool-capable model
+  automatically, shown as tool lines in the reply.
+- **Image modify modes**: the "What to do with it" dropdown explains each mode
+  under it. Inpaint = paint a mask over the part to change (brush/eraser
+  tools appear on the image), describe the replacement in the prompt, only
+  that region regenerates. Outpaint = pick directions (left/right/top/bottom)
+  to extend the canvas. Vary/upscale/style/structure/depth/face cover
+  re-diffusion, enlarging and ControlNet restyling.
+- **Fooocus's own UI**: the Models page has a "Launch Fooocus UI" strip — it
+  runs Fooocus's native interface standalone on port 7865 with the same
+  models. It and this app's image server can't run together (one GPU); LLM
+  replies are slow while either holds the GPU.
 - **Skills & Tools** (#/toolbox): SKILLS are prompt directives that shape agent
   behavior; TOOLS are Python functions agents can call (builtin ones like
   calculator/http_get/web_search/read_webpage/run_python/files/knowledge/

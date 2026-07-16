@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, toast, fmtTime } from "../lib/api.js";
+import MaskCanvas from "./MaskCanvas.jsx";
 
 export default function ImageGen() {
   const [status, setStatus] = useState(null);
@@ -30,6 +31,8 @@ export default function ImageGen() {
   const [mode, setMode] = useState("vary_strong");
   const [source, setSource] = useState(null); // {data|name, label}
   const [cnWeight, setCnWeight] = useState(0.6);
+  const [mask, setMask] = useState(null); // white-on-black data URL (inpaint)
+  const [outDirs, setOutDirs] = useState(["Left", "Right"]);
   const [dragOver, setDragOver] = useState(false);
   const loraPollRef = useRef(null);
 
@@ -162,6 +165,41 @@ export default function ImageGen() {
     }
   };
 
+  // --- Fooocus's own web UI (optional standalone install) ---
+
+  const [fUi, setFUi] = useState(null);       // {installed, running, url}
+  const [fUiBusy, setFUiBusy] = useState(false);
+  useEffect(() => { api("/imagegen/ui").then(setFUi).catch(() => {}); }, []);
+
+  const openFooocusUi = async () => {
+    try {
+      setFUiBusy(true);
+      if (!fUi?.running) {
+        const r = await api("/imagegen/ui/start", { method: "POST" });
+        if (r.error) { toast(r.error, true); setFUiBusy(false); return; }
+        toast("Starting Fooocus UI — it takes ~30-60s to load the model…");
+        // Poll until the Gradio server answers, then open it.
+        for (let i = 0; i < 40; i++) {
+          await new Promise((res) => setTimeout(res, 3000));
+          const st = await api("/imagegen/ui").catch(() => null);
+          if (st?.running) { setFUi(st); break; }
+        }
+      }
+      const st = await api("/imagegen/ui").catch(() => fUi);
+      if (st?.running) window.open(st.url, "_blank");
+      else toast("Fooocus UI did not come up — check ui.log in its folder", true);
+      setFUi(st);
+    } finally { setFUiBusy(false); }
+  };
+
+  const stopFooocusUi = async () => {
+    setFUiBusy(true);
+    const r = await api("/imagegen/ui/stop", { method: "POST" }).catch((e) => ({ error: e.message }));
+    if (r.error) toast(r.error, true);
+    else { toast("Fooocus UI stopped"); setFUi((s) => ({ ...s, running: false })); }
+    setFUiBusy(false);
+  };
+
   // --- modify an existing image (img2img) ---
 
   const loraPayload = () => Object.entries(selectedLoras).map(([file_name, weight]) => ({
@@ -183,6 +221,14 @@ export default function ImageGen() {
       toast("This mode uses your prompt — describe the change you want", true);
       return;
     }
+    if (spec?.needs_mask && !mask) {
+      toast("Paint over the area you want changed first", true);
+      return;
+    }
+    if (mode === "outpaint" && !outDirs.length) {
+      toast("Pick at least one direction to extend into", true);
+      return;
+    }
     try {
       setError(null);
       setGenerating(true);
@@ -194,6 +240,8 @@ export default function ImageGen() {
             image: source.data ?? source.name,  // data URL, or a gallery filename
             mode, prompt, negative, performance: speed,
             weight: Number(cnWeight) || 0.6,
+            ...(spec?.needs_mask ? { mask } : {}),
+            ...(mode === "outpaint" ? { outpaint: outDirs } : {}),
             ...(loraPayload().length ? { loras: loraPayload() } : {}),
           },
         },
@@ -496,6 +544,25 @@ export default function ImageGen() {
           <div className="help" style={{ marginTop: 8 }}>
             Takes ~30-60 seconds to load the model. Be patient.
           </div>
+          {fUi?.installed && (
+            <div className="fooocus-ui-strip" style={{ marginTop: 10 }}>
+              <span>
+                🎛️ Or use Fooocus's <strong>own interface</strong> instead — full
+                manual control, same models, on port 7865. (One GPU: it and this
+                app's image server can't run at the same time.)
+              </span>
+              {fUi.running ? (
+                <span style={{ display: "inline-flex", gap: 6 }}>
+                  <a className="btn sm primary" href={fUi.url} target="_blank" rel="noreferrer">↗ Open</a>
+                  <button className="btn sm" onClick={stopFooocusUi} disabled={fUiBusy}>Stop it</button>
+                </span>
+              ) : (
+                <button className="btn sm" onClick={openFooocusUi} disabled={fUiBusy}>
+                  {fUiBusy ? "Starting… (~1 min)" : "▶ Launch Fooocus UI"}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -645,6 +712,29 @@ export default function ImageGen() {
             the 30-60 step modes can take ~40 min per image.
           </div>
 
+          {fUi?.installed && (
+            <div className="fooocus-ui-strip">
+              <span>
+                🎛️ Prefer Fooocus's <strong>own interface</strong>? It runs standalone
+                (same models, port 7865) — this app's image server stops while it's up,
+                they share the GPU. Its images save to its own <code>outputs/</code>
+                folder, not this gallery.
+              </span>
+              {fUi.running ? (
+                <span style={{ display: "inline-flex", gap: 6 }}>
+                  <a className="btn sm primary" href={fUi.url} target="_blank" rel="noreferrer">
+                    ↗ Open
+                  </a>
+                  <button className="btn sm" onClick={stopFooocusUi} disabled={fUiBusy}>Stop it</button>
+                </span>
+              ) : (
+                <button className="btn sm" onClick={openFooocusUi} disabled={fUiBusy}>
+                  {fUiBusy ? "Starting… (~1 min)" : "▶ Launch Fooocus UI"}
+                </button>
+              )}
+            </div>
+          )}
+
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginBottom: 10 }}>
             <button className="btn sm ghost" style={{ padding: "4px 8px" }}
               onClick={() => setModifyOpen((o) => !o)}>
@@ -703,7 +793,7 @@ export default function ImageGen() {
                     <label style={{ display: "block", marginBottom: 4, fontWeight: 500, fontSize: 12.5 }}>
                       What to do with it
                     </label>
-                    <select value={mode} onChange={(e) => setMode(e.target.value)}
+                    <select value={mode} onChange={(e) => { setMode(e.target.value); setMask(null); }}
                       disabled={generating}
                       style={{ width: "100%", padding: "8px 6px", border: "1px solid var(--border)",
                                borderRadius: 6, fontSize: 13 }}>
@@ -728,6 +818,30 @@ export default function ImageGen() {
                     {generating ? "Queuing…" : "🖼️ Modify"}
                   </button>
                 </div>
+                {(() => {
+                  const spec = modes.find((m) => m.key === mode);
+                  return spec?.description ? (
+                    <div className="mode-desc">{spec.description}</div>
+                  ) : null;
+                })()}
+                {mode === "outpaint" && (
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 500 }}>Extend towards:</span>
+                    {["Left", "Right", "Top", "Bottom"].map((d) => (
+                      <label key={d} style={{ fontSize: 12.5, display: "inline-flex", gap: 4, alignItems: "center" }}>
+                        <input type="checkbox" checked={outDirs.includes(d)}
+                          onChange={(e) => setOutDirs((ds) =>
+                            e.target.checked ? [...ds, d] : ds.filter((x) => x !== d))} />
+                        {{ Left: "← left", Right: "right →", Top: "↑ top", Bottom: "bottom ↓" }[d]}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {modes.find((m) => m.key === mode)?.needs_mask && source && (
+                  <MaskCanvas
+                    src={source.data || `/api/imagegen/images/${source.name}`}
+                    onMask={setMask} />
+                )}
                 <div className="param-hint" style={{ marginTop: 6 }}>
                   Uses the prompt box above for the change you want (except pure upscales).
                   Queued like generate jobs — vary/restyle re-diffuse the image and take a
