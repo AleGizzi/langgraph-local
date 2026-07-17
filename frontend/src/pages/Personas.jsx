@@ -3,6 +3,7 @@ import { api, toast } from "../lib/api.js";
 import { useApp } from "../App.jsx";
 import AgentFields from "../components/AgentFields.jsx";
 import WizardPanel from "../components/WizardPanel.jsx";
+import ViewToggle, { useViewMode } from "../components/ViewToggle.jsx";
 
 /* ---------- deterministic card stats (mirrors sprites.py heuristics) ---------- */
 
@@ -226,6 +227,7 @@ export default function Personas() {
   const [editing, setEditing] = useState(undefined);
   const [wizMode, setWizMode] = useState(false);
   const [viewing, setViewing] = useState(null);
+  const [view, setView] = useViewMode("personas");
 
   const load = () => api("/personas").then(setPersonas).catch(() => setPersonas([]));
   useEffect(() => { load(); }, []);
@@ -249,11 +251,41 @@ export default function Personas() {
             its creature sprite, or edit its settings
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <ViewToggle view={view} onChange={setView} />
           <button className="btn" onClick={() => { setWizMode(true); setEditing(null); }}>🪄 Describe an agent</button>
           <button className="btn primary" onClick={() => { setWizMode(false); setEditing(null); }}>＋ New Persona</button>
         </div>
       </div>
+      {view === "list" ? (
+      <div className="listv">
+        {personas.map((p) => (
+          <div key={p.id} className="listv-row" onClick={() => setViewing(p)}>
+            {p.sprite
+              ? <img className="listv-icon" style={{ padding: 0, objectFit: "cover" }}
+                  src={`/api/imagegen/images/${p.sprite}`} alt="" />
+              : <div className="listv-icon">{p.icon}</div>}
+            <div className="listv-main">
+              <div className="listv-title">{p.name}
+                <span className="chip" style={{ marginLeft: 6 }}>Lv. {level(p)}</span></div>
+              <div className="listv-sub">{p.sprite_meta?.species || p.role} — {p.description}</div>
+            </div>
+            <div className="listv-chips">
+              {p.model && <span className="chip">{p.model}</span>}
+              {(p.tools || []).length > 0 && <span className="chip loop">{p.tools.length} tools</span>}
+              {p.builtin && <span className="chip">builtin</span>}
+            </div>
+            <div className="listv-actions">
+              <button className="icon-btn" title={`Chat with ${p.name}`}
+                onClick={(e) => { e.stopPropagation(); location.hash = `#/chat/${p.id}`; }}>💬</button>
+              <button className="icon-btn" title="Edit" onClick={(e) => { e.stopPropagation(); setWizMode(false); setEditing(p); }}>✏️</button>
+              <button className="icon-btn" title="Delete" onClick={(e) => del(p, e)}>🗑️</button>
+            </div>
+          </div>
+        ))}
+        {!personas.length && <div className="help" style={{ padding: 16 }}>No personas yet.</div>}
+      </div>
+      ) : (
       <div className="grid">
         {personas.map((p) => (
           <div key={p.id} className="card team-card persona-card" onClick={() => setViewing(p)}>
@@ -287,6 +319,7 @@ export default function Personas() {
           <div className="plus">🪄</div>Describe it — AI builds the agent
         </div>
       </div>
+      )}
 
       {viewing && (
         <PersonaCard persona={viewing}

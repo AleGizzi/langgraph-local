@@ -97,7 +97,10 @@ There is **no** `run_start`, `agent_start`, `agent_end`, or `run_end` in chat
   model). The tools return a JSON transcript; `engine._spawned_agent_events`
   re-emits each entry as an `agent_msg` SSE event, and `Chat.jsx` renders
   those as their **own violet bubbles** (name label, inserted before the live
-  assistant reply). They persist with `role: "agent"` + `name` (accepted by
+  assistant reply). Each bubble shows the **real model + wall-clock seconds**
+  that produced it (`_invoke_timed`), so the user can verify the dialogue is
+  genuine separate inference — a single model faking both sides can't show two
+  different model ids with independent multi-second timings. They persist with `role: "agent"` + `name` (accepted by
   `_validate_chat`) and are replayed to the model as
   `[<name> said] …` Human messages — never as its own words, or it learns to
   impersonate its sub-agents. Transcript bubbles appear when the whole

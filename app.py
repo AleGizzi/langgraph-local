@@ -587,7 +587,10 @@ def _validate_chat(data: dict) -> dict:
     return {"title": title, "agent": data.get("agent") or {},
             "messages": [
                 {"role": m["role"], "content": str(m.get("content", "")),
-                 **({"name": str(m["name"])[:60]} if m.get("name") else {})}
+                 **({"name": str(m["name"])[:60]} if m.get("name") else {}),
+                 **({"model": str(m["model"])[:60]} if m.get("model") else {}),
+                 **({"seconds": m["seconds"]}
+                    if isinstance(m.get("seconds"), (int, float)) else {})}
                 for m in msgs]}
 
 

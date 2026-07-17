@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api, toast } from "../lib/api.js";
 import { useApp } from "../App.jsx";
 import WizardPanel from "../components/WizardPanel.jsx";
+import ViewToggle, { useViewMode } from "../components/ViewToggle.jsx";
 
 /* ---------------- skills ---------------- */
 
@@ -143,6 +144,9 @@ export default function Toolbox() {
   const [editFile, setEditFile] = useState(undefined); // undefined closed, null new, "x.py" edit
   const [skillWiz, setSkillWiz] = useState(false);
   const [toolWiz, setToolWiz] = useState(false);
+  const [tab, setTab] = useState(() => localStorage.getItem("toolbox:tab") || "skills");
+  const [skillView, setSkillView] = useViewMode("skills");
+  useEffect(() => { localStorage.setItem("toolbox:tab", tab); }, [tab]);
 
   const load = () => {
     api("/skills").then(setSkills).catch(() => {});
@@ -177,13 +181,51 @@ export default function Toolbox() {
         </div>
       </div>
 
+      <div className="tabbar">
+        <button className={tab === "skills" ? "active" : ""} onClick={() => setTab("skills")}>
+          ✨ Skills <span className="chip" style={{ marginLeft: 4 }}>{skills.length}</span>
+        </button>
+        <button className={tab === "tools" ? "active" : ""} onClick={() => setTab("tools")}>
+          🛠️ Tools <span className="chip" style={{ marginLeft: 4 }}>
+            {(catalog?.builtin?.length || 0) + (catalog?.custom?.length || 0)}</span>
+        </button>
+      </div>
+
       {/* ---- skills ---- */}
+      {tab === "skills" && (
       <div className="card section-card">
-        <h2>✨ Skills</h2>
-        <div className="sub">
-          A skill is a reusable block of instructions appended to an agent's system
-          prompt. Attach skills to agents in the team editor or on a persona.
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <h2>✨ Skills</h2>
+            <div className="sub">
+              A skill is a reusable block of instructions appended to an agent's system
+              prompt. Attach skills to agents in the team editor or on a persona.
+            </div>
+          </div>
+          <ViewToggle view={skillView} onChange={setSkillView} />
         </div>
+        {skillView === "list" ? (
+        <div className="listv" style={{ marginTop: 10 }}>
+          {skills.map((s) => (
+            <div key={s.id} className="listv-row" onClick={() => setEditSkill(s)}>
+              <div className="listv-icon">{s.icon}</div>
+              <div className="listv-main">
+                <div className="listv-title">{s.name}
+                  {s.builtin && <span className="chip" style={{ marginLeft: 6 }}>builtin</span>}</div>
+                <div className="listv-sub">{s.description}</div>
+              </div>
+              <div className="listv-actions">
+                <button className="icon-btn" title="Edit" onClick={(e) => { e.stopPropagation(); setEditSkill(s); }}>✏️</button>
+                <button className="icon-btn" title="Delete" onClick={(e) => delSkill(s, e)}>🗑️</button>
+              </div>
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button className="btn sm" onClick={() => { setSkillWiz(false); setEditSkill(null); }}>＋ Create a skill</button>
+            <button className="btn sm" onClick={() => { setSkillWiz(true); setEditSkill(null); }}>🪄 With AI wizard</button>
+          </div>
+        </div>
+        ) : (
         <div className="grid" style={{ marginTop: 10 }}>
           {skills.map((s) => (
             <div key={s.id} className="card team-card persona-card" onClick={() => setEditSkill(s)}>
@@ -208,6 +250,7 @@ export default function Toolbox() {
             <div className="plus">🪄</div>Create with AI wizard
           </div>
         </div>
+        )}
         <h3 style={{ fontSize: 13, margin: "18px 0 4px" }}>How to create a good skill</h3>
         <div className="steps">
           <div className="step-item"><div className="step-num">1</div>
@@ -220,8 +263,10 @@ export default function Toolbox() {
             <div>Attach it: team editor → agent → <strong>Skills</strong>, or add it to a persona so every agent created from that persona has it.</div></div>
         </div>
       </div>
+      )}
 
       {/* ---- tools ---- */}
+      {tab === "tools" && (
       <div className="card section-card">
         <h2>🛠️ Tools</h2>
         <div className="sub">
@@ -284,6 +329,7 @@ export default function Toolbox() {
             <div>Tip: tool calling needs a model that supports it well — qwen2.5 models do; tinyllama does not.</div></div>
         </div>
       </div>
+      )}
 
       {editSkill !== undefined && (
         <SkillEditor skill={editSkill} wizard={skillWiz}

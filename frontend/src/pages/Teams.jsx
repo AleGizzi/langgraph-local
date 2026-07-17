@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { api, toast } from "../lib/api.js";
 import TeamEditor from "../components/TeamEditor.jsx";
+import ViewToggle, { useViewMode } from "../components/ViewToggle.jsx";
 
 export default function Teams() {
   const [teams, setTeams] = useState(null);
   const [editing, setEditing] = useState(undefined); // undefined=closed, null=new, obj=edit
   const [wizMode, setWizMode] = useState(false);
+  const [view, setView] = useViewMode("teams");
 
   const load = () => api("/teams").then(setTeams).catch((e) => toast(e.message, true));
   useEffect(() => { load(); }, []);
@@ -33,11 +35,13 @@ export default function Teams() {
           <h1 className="page-title">Studio</h1>
           <p className="page-sub">Agent teams that run on your local models</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <ViewToggle view={view} onChange={setView} />
           <button className="btn" onClick={() => { setWizMode(true); setEditing(null); }}>🪄 Describe a team</button>
           <button className="btn primary" onClick={() => { setWizMode(false); setEditing(null); }}>＋ New Team</button>
         </div>
       </div>
+      {view === "grid" ? (
       <div className="grid">
         {(teams || []).map((t) => (
           <div key={t.id} className="card team-card" onClick={() => (location.hash = `#/team/${t.id}`)}>
@@ -68,6 +72,32 @@ export default function Teams() {
           <div className="plus">🪄</div>Describe it — AI builds the team
         </div>
       </div>
+      ) : (
+      <div className="listv">
+        {(teams || []).map((t) => (
+          <div key={t.id} className="listv-row" onClick={() => (location.hash = `#/team/${t.id}`)}>
+            <div className="listv-icon">{t.icon}</div>
+            <div className="listv-main">
+              <div className="listv-title">{t.name}</div>
+              <div className="listv-sub">{t.description || "No description"}</div>
+            </div>
+            <div className="listv-chips">
+              <span className="chip topo">{t.topology}</span>
+              <span className="chip">{t.agents.length} agent{t.agents.length > 1 ? "s" : ""}</span>
+              {t.settings.quality_loop && <span className="chip loop">quality loop</span>}
+            </div>
+            <div className="listv-actions">
+              <button className="icon-btn" title="Open in canvas" onClick={(e) => { e.stopPropagation(); location.hash = `#/flow/${t.id}`; }}>🎨</button>
+              <button className="icon-btn" title="Pixel studio" onClick={(e) => { e.stopPropagation(); location.hash = `#/pixel/${t.id}`; }}>👾</button>
+              <button className="icon-btn" title="Edit" onClick={(e) => { e.stopPropagation(); setEditing(t); }}>✏️</button>
+              <button className="icon-btn" title="Duplicate" onClick={(e) => dup(t, e)}>📋</button>
+              <button className="icon-btn" title="Delete" onClick={(e) => del(t, e)}>🗑️</button>
+            </div>
+          </div>
+        ))}
+        {!(teams || []).length && <div className="help" style={{ padding: 16 }}>No teams yet.</div>}
+      </div>
+      )}
       {editing !== undefined && (
         <TeamEditor
           team={editing}

@@ -288,7 +288,9 @@ def _spawned_agent_events(tool_name: str, result: str) -> list:
         if isinstance(m, dict) and m.get("content"):
             events.append({"type": "agent_msg",
                            "agent": str(m.get("agent") or "agent")[:60],
-                           "content": str(m["content"])})
+                           "content": str(m["content"]),
+                           "model": m.get("model"),
+                           "seconds": m.get("seconds")})
     return events
 
 

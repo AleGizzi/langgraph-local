@@ -82,7 +82,8 @@ export default function Chat({ personaId = null }) {
 
   const persist = async (agentCfg, msgs) => {
     const clean = msgs.filter((m) => !m.live)
-      .map(({ role, content, name }) => (name ? { role, content, name } : { role, content }));
+      .map(({ role, content, name, model, seconds }) =>
+        (name ? { role, content, name, model, seconds } : { role, content }));
     if (!clean.length) return;
     try {
       if (chatIdRef.current) {
@@ -201,11 +202,13 @@ export default function Chat({ personaId = null }) {
             patch((m) => ({ ...m, tools: [...m.tools, { type: ev.type, text: ev.content }] }));
           } else if (ev.type === "agent_msg") {
             // A spawned agent spoke — its own bubble, placed before the live
-            // assistant message so the dialog reads in order.
+            // assistant message so the dialog reads in order. model + seconds
+            // are the proof it was a real, separate inference call.
             setMessages((ms) => {
               const next = [...ms];
               const live = next.pop();
-              next.push({ role: "agent", name: ev.agent, content: ev.content });
+              next.push({ role: "agent", name: ev.agent, content: ev.content,
+                          model: ev.model, seconds: ev.seconds });
               next.push(live);
               return next;
             });
@@ -305,7 +308,17 @@ export default function Chat({ personaId = null }) {
           )}
           {messages.map((m, i) => (
             <div key={i} className={"chat-msg " + m.role}>
-              {m.role === "agent" && <div className="agent-msg-name">{m.name || "spawned agent"}</div>}
+              {m.role === "agent" && (
+                <div className="agent-msg-name">
+                  {m.name || "spawned agent"}
+                  {m.model && (
+                    <span className="agent-msg-proof"
+                      title="This reply came from a separate local model call — proof it is a real spawned agent, not the main model role-playing.">
+                      · {m.model}{m.seconds != null ? ` · ${m.seconds}s` : ""}
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="chat-bubble">
                 {(m.tools || []).map((t, j) => (
                   <div key={j} className={"tool-line" + (t.type === "tool_result" ? " result" : "")}>

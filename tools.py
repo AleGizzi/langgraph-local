@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from urllib.parse import unquote
 
 import requests
@@ -222,7 +223,7 @@ def _find_persona(name: str):
 
 
 def _spawn_llm(persona: dict, role_fallback: str):
-    """(llm, display_name, system_prompt) for a persona or an ad-hoc role."""
+    """(llm, display_name, system_prompt, model) for a persona or ad-hoc role."""
     from providers import make_llm, list_models
     if persona:
         model = persona.get("model")
@@ -243,8 +244,20 @@ def _spawn_llm(persona: dict, role_fallback: str):
                 "role and answer concretely.")
         name = f"🤖 {role_fallback[:40]}"
     if not model:
-        return None, name, sysp
-    return make_llm(provider, model, {"temperature": 0.4, "num_predict": 900}), name, sysp
+        return None, name, sysp, None
+    return (make_llm(provider, model, {"temperature": 0.4, "num_predict": 900}),
+            name, sysp, model)
+
+
+def _invoke_timed(llm, msgs):
+    """Run one spawned inference, returning (reply, seconds). Each call is a
+    real, separate model invocation — the elapsed time and per-agent model name
+    are surfaced to the UI as proof the dialogue isn't the caller talking to
+    itself."""
+    t0 = time.time()
+    out = llm.invoke(msgs)
+    reply = out.content if isinstance(out.content, str) else str(out.content)
+    return reply.strip(), round(time.time() - t0, 1)
 
 
 @tool
@@ -257,16 +270,16 @@ def ask_agent(persona: str, question: str) -> str:
     if gate:
         return json.dumps({"error": gate})
     p = _find_persona(persona)
-    llm, name, sysp = _spawn_llm(p, persona)
+    llm, name, sysp, model = _spawn_llm(p, persona)
     if llm is None:
         return json.dumps({"error": "no local model available to spawn"})
     try:
-        out = llm.invoke([("system", sysp), ("human", question)])
-        reply = out.content if isinstance(out.content, str) else str(out.content)
+        reply, secs = _invoke_timed(llm, [("system", sysp), ("human", question)])
     except Exception as e:  # noqa: BLE001
         return json.dumps({"error": f"{type(e).__name__}: {e}"})
-    return json.dumps({"transcript": [{"agent": name, "content": reply.strip()}]},
-                      ensure_ascii=False)
+    return json.dumps({"transcript": [
+        {"agent": name, "content": reply, "model": model, "seconds": secs}]},
+        ensure_ascii=False)
 
 
 @tool
@@ -279,8 +292,8 @@ def agent_dialog(persona_a: str, persona_b: str, topic: str, turns: int = 3) -> 
     if gate:
         return json.dumps({"error": gate})
     pa, pb = _find_persona(persona_a), _find_persona(persona_b)
-    llm_a, name_a, sys_a = _spawn_llm(pa, persona_a)
-    llm_b, name_b, sys_b = _spawn_llm(pb, persona_b)
+    llm_a, name_a, sys_a, model_a = _spawn_llm(pa, persona_a)
+    llm_b, name_b, sys_b, model_b = _spawn_llm(pb, persona_b)
     if llm_a is None or llm_b is None:
         return json.dumps({"error": "no local model available to spawn"})
     if name_a == name_b:
@@ -293,16 +306,17 @@ def agent_dialog(persona_a: str, persona_b: str, topic: str, turns: int = 3) -> 
     try:
         last = f"Let's discuss: {topic}"
         for t in range(turns):
-            for llm, name, sysp, other in ((llm_a, name_a, sys_a, name_b),
-                                           (llm_b, name_b, sys_b, name_a)):
+            for llm, name, sysp, model, other in (
+                    (llm_a, name_a, sys_a, model_a, name_b),
+                    (llm_b, name_b, sys_b, model_b, name_a)):
                 hist = "\n\n".join(f"{m['agent']}: {m['content']}" for m in transcript[-6:])
                 prompt = (f"Topic: {topic}\n\nConversation so far:\n{hist or '(start)'}"
                           f"\n\n{other} just said: {last}\n\nYour reply"
                           + (" (final turn — conclude):" if t == turns - 1 else ":"))
-                out = llm.invoke([("system", sysp + style), ("human", prompt)])
-                reply = (out.content if isinstance(out.content, str)
-                         else str(out.content)).strip()
-                transcript.append({"agent": name, "content": reply})
+                reply, secs = _invoke_timed(llm, [("system", sysp + style),
+                                                  ("human", prompt)])
+                transcript.append({"agent": name, "content": reply,
+                                   "model": model, "seconds": secs})
                 last = reply
     except Exception as e:  # noqa: BLE001
         if not transcript:

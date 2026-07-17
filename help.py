@@ -55,10 +55,16 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   into an mp4 with pan/zoom and crossfades. Edit each shot's prompt and
   duration before generating. This is slideshow-style video — real video
   diffusion needs far more GPU than this machine has.
-- **Spawning agents in chat**: give a chat agent the "agents" tool and it can
-  consult another persona (ask_agent) or make TWO personas discuss a topic
-  (agent_dialog) — every spawned agent appears as its own violet bubble in the
-  conversation. Spawning is blocked when free RAM is low.
+- **Spawning agents in chat**: give a chat agent the "agents" tool (Skills &
+  Tools are enabled per-agent in the chat settings panel or on a persona), then
+  ask it to consult a persona or have two discuss a topic — e.g. "have the
+  Coder and the Critic debate X for 2 turns". Each spawned agent appears as its
+  own violet bubble showing the REAL model and the seconds it took, so you can
+  see they are genuine separate model calls, not the main model role-playing.
+  Spawning is blocked when free RAM is low.
+- **List vs grid view**: Studio, Personas, and Skills & Tools have a ▦/☰ toggle
+  (top right) to switch between card grid and a compact list; the choice is
+  remembered per page. Skills & Tools is also split into Skills and Tools tabs.
 - **Hallucination check (chat settings)**: optional — after each reply a small
   local model ESTIMATES how much is confident-but-unverifiable, shown as a 🔮
   pill per reply plus a conversation average. It is an estimate to guide
