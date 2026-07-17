@@ -55,7 +55,11 @@ export default function App() {
   const [paramSpecs, setParamSpecs] = useState([]);
   const [health, setHealth] = useState(null);
   const [staleBundle, setStaleBundle] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar") === "collapsed");
   const firstStarted = React.useRef(null);
+  useEffect(() => {
+    localStorage.setItem("sidebar", collapsed ? "collapsed" : "expanded");
+  }, [collapsed]);
 
   const reloadCatalogs = () => {
     api("/tools").then(setTools).catch(() => {});
@@ -135,18 +139,23 @@ export default function App() {
 
   return (
     <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs, theme }}>
-      <div id="app">
+      <div id="app" className={collapsed ? "sidebar-collapsed" : ""}>
         <aside className="sidebar">
           <div className="logo">
             <div className="logo-mark"><PixelSprite name="invader" size={20} color="#fff" /></div>
-            <div>
+            <div className="logo-text">
               <div className="logo-name">Agents Studio</div>
               <div className="logo-sub">LangGraph · local</div>
             </div>
+            <button className="sidebar-toggle" title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label="Toggle sidebar" onClick={() => setCollapsed(!collapsed)}>
+              {collapsed ? "»" : "«"}
+            </button>
           </div>
           <nav className="nav">
             {NAV.map(([key, ico, label]) => (
-              <a key={key} href={`#/${key}`} className={active === key ? "active" : ""}>
+              <a key={key} href={`#/${key}`} className={active === key ? "active" : ""}
+                data-label={label}>
                 <span className="ico">{ico}</span>
                 <span className="txt">{label}</span>
               </a>

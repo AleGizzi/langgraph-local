@@ -74,8 +74,42 @@ input, textarea, select { font: inherit; color: var(--text); }
   width: 232px; flex-shrink: 0; background: var(--surface);
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column; padding: 16px 12px;
+  transition: width .18s ease;
 }
 .logo { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; }
+.sidebar-toggle {
+  margin-left: auto; width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-3);
+  font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.sidebar-toggle:hover { background: var(--bg); color: var(--text); }
+
+/* Collapsed: icon-only rail, labels appear as hover tooltips */
+.sidebar-collapsed .sidebar { width: 60px; padding: 16px 8px; }
+.sidebar-collapsed .logo-text { display: none; }
+.sidebar-collapsed .logo { justify-content: center; padding: 4px 0 18px; gap: 0; }
+.sidebar-collapsed .sidebar-toggle {
+  position: absolute; top: 14px; right: -12px; z-index: 5;
+  background: var(--surface); box-shadow: var(--shadow);
+}
+.sidebar-collapsed .sidebar { position: relative; }
+.sidebar-collapsed .nav a { justify-content: center; padding: 9px 0; position: relative; }
+.sidebar-collapsed .nav a .txt { display: none; }
+.sidebar-collapsed .nav a .ico { font-size: 17px; }
+/* tooltip on hover */
+.sidebar-collapsed .nav a::after {
+  content: attr(data-label); position: absolute; left: calc(100% + 10px); top: 50%;
+  transform: translateY(-50%); white-space: nowrap; z-index: 20;
+  background: var(--inverse); color: var(--inverse-text); font-size: 12px; font-weight: 600;
+  padding: 5px 9px; border-radius: 6px; box-shadow: var(--shadow-lg);
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.sidebar-collapsed .nav a:hover::after { opacity: 1; }
+.sidebar-collapsed .prov .lbl,
+.sidebar-collapsed .theme-switch-label { display: none; }
+.sidebar-collapsed .theme-switch { justify-content: center; padding: 8px 0; }
+.sidebar-collapsed .sidebar-foot { padding: 10px 0 2px; }
+.sidebar-collapsed .prov { justify-content: center; }
 .logo-mark {
   width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
   background: linear-gradient(135deg, #155eef, #6938ef);
