@@ -88,6 +88,30 @@ There is **no** `run_start`, `agent_start`, `agent_end`, or `run_end` in chat
   the user just resends.
 - Tool loop bounded by the same `MAX_TOOL_ROUNDS` constant as team runs
   (default 14, env-tunable).
+- **Spawning agents (added 2026-07):** the `agents` tool bundle gives a chat
+  agent `ask_agent(persona, question)` (one-shot consult) and
+  `agent_dialog(persona_a, persona_b, topic, turns≤4)` (two personas discuss).
+  Both are **memory-gated** (`tools._spawn_memory_gate`, psutil free-RAM ≥
+  `AGENTS_SPAWN_MIN_FREE_GB`, default 4) and resolve persona names against the
+  library (partial match ok; unknown names become ad-hoc roles on the default
+  model). The tools return a JSON transcript; `engine._spawned_agent_events`
+  re-emits each entry as an `agent_msg` SSE event, and `Chat.jsx` renders
+  those as their **own violet bubbles** (name label, inserted before the live
+  assistant reply). They persist with `role: "agent"` + `name` (accepted by
+  `_validate_chat`) and are replayed to the model as
+  `[<name> said] …` Human messages — never as its own words, or it learns to
+  impersonate its sub-agents. Transcript bubbles appear when the whole
+  dialog finishes (tools can't stream mid-invoke) — a 2-turn 7B dialog means
+  ~1-2 minutes of tool-call silence first.
+- **Hallucination-risk estimate (opt-in, added 2026-07):** the "🔮
+  Hallucination check" toggle calls `POST /api/chat/verify` after each reply;
+  `judge.py` has a small non-reasoning model (help.py's PREFERRED list) score
+  how much of the reply is confident-but-unverifiable, returning
+  `{risk 0-100, reasons[]}` (defensively parsed). The UI shows a colored pill
+  per reply and a conversation average in the gauge row. It is always labeled
+  an **estimate** — hallucination cannot be measured locally, only flagged;
+  verified spread: grounded arithmetic scored 5%, a fully invented city with
+  fake citations scored 85%.
 - **Context gauge:** after each turn `chat_stream` emits a `usage` SSE event —
   `{input_tokens, output_tokens, est_tokens, tok_s, num_ctx, model_max}`.
   Real counts come from the final chunk's `usage_metadata`/`response_metadata`;

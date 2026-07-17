@@ -5,6 +5,7 @@ http_get has strict timeouts.
 import ast
 import datetime
 import html
+import json
 import operator as op
 import os
 import re
@@ -188,6 +189,248 @@ def make_run_python(workspace: str):
         return "\n".join(parts)
 
     return run_python
+
+
+# ---------------- spawning other agents (chat) ----------------
+
+_SPAWN_MIN_FREE_GB = float(os.environ.get("AGENTS_SPAWN_MIN_FREE_GB", "4"))
+
+
+def _spawn_memory_gate():
+    """None if there's room to load another model, else a refusal string.
+    Each spawned persona may pull its own model into RAM — on a 31GB machine
+    two or three 7Bs coexist, but unchecked spawning would swap-storm it."""
+    try:
+        import psutil
+        free_gb = psutil.virtual_memory().available / (1024 ** 3)
+    except Exception:  # noqa: BLE001 - no psutil → be permissive, Ollama queues anyway
+        return None
+    if free_gb < _SPAWN_MIN_FREE_GB:
+        return (f"Not enough free memory to spawn another agent "
+                f"({free_gb:.1f}GB free, {_SPAWN_MIN_FREE_GB:.0f}GB needed). "
+                "Answer with what you have, or ask the user to free memory.")
+    return None
+
+
+def _find_persona(name: str):
+    """Match a persona by name (case-insensitive, partial ok). None if absent."""
+    import storage
+    wanted = (name or "").strip().lower()
+    personas = storage.list_personas()
+    exact = next((p for p in personas if p["name"].lower() == wanted), None)
+    return exact or next((p for p in personas if wanted and wanted in p["name"].lower()), None)
+
+
+def _spawn_llm(persona: dict, role_fallback: str):
+    """(llm, display_name, system_prompt) for a persona or an ad-hoc role."""
+    from providers import make_llm, list_models
+    if persona:
+        model = persona.get("model")
+        provider = persona.get("provider", "ollama")
+        if not model:
+            models = list_models()
+            provider = "ollama" if models.get("ollama") else "lmstudio"
+            model = next(iter(models.get(provider) or []), None)
+        sysp = persona.get("system_prompt") or f"You are {persona['name']}."
+        name = f"{persona.get('icon', '🤖')} {persona['name']}"
+    else:
+        models = list_models()
+        provider = "ollama" if models.get("ollama") else "lmstudio"
+        model = next((m for m in (models.get(provider) or [])
+                      if m.startswith("qwen2.5:")), None) \
+            or next(iter(models.get(provider) or []), None)
+        sysp = (f"You are an assistant acting as: {role_fallback}. Stay in that "
+                "role and answer concretely.")
+        name = f"🤖 {role_fallback[:40]}"
+    if not model:
+        return None, name, sysp
+    return make_llm(provider, model, {"temperature": 0.4, "num_predict": 900}), name, sysp
+
+
+@tool
+def ask_agent(persona: str, question: str) -> str:
+    """Spawn another agent and ask it ONE question, returning its reply.
+    `persona` is a persona name from the library (e.g. 'Code Reviewer',
+    'Researcher') or a role description if no such persona exists. Use when a
+    different specialty or a second opinion genuinely helps."""
+    gate = _spawn_memory_gate()
+    if gate:
+        return json.dumps({"error": gate})
+    p = _find_persona(persona)
+    llm, name, sysp = _spawn_llm(p, persona)
+    if llm is None:
+        return json.dumps({"error": "no local model available to spawn"})
+    try:
+        out = llm.invoke([("system", sysp), ("human", question)])
+        reply = out.content if isinstance(out.content, str) else str(out.content)
+    except Exception as e:  # noqa: BLE001
+        return json.dumps({"error": f"{type(e).__name__}: {e}"})
+    return json.dumps({"transcript": [{"agent": name, "content": reply.strip()}]},
+                      ensure_ascii=False)
+
+
+@tool
+def agent_dialog(persona_a: str, persona_b: str, topic: str, turns: int = 3) -> str:
+    """Spawn TWO agents and have them discuss a topic with each other for a few
+    turns (max 4 each); their whole conversation is shown to the user. Use for
+    debates, brainstorm pairs, or adversarial review (e.g. 'Coder' vs
+    'Security Auditor'). State the topic fully — they only know what you pass."""
+    gate = _spawn_memory_gate()
+    if gate:
+        return json.dumps({"error": gate})
+    pa, pb = _find_persona(persona_a), _find_persona(persona_b)
+    llm_a, name_a, sys_a = _spawn_llm(pa, persona_a)
+    llm_b, name_b, sys_b = _spawn_llm(pb, persona_b)
+    if llm_a is None or llm_b is None:
+        return json.dumps({"error": "no local model available to spawn"})
+    if name_a == name_b:
+        name_b += " (2)"
+    turns = max(1, min(4, int(turns or 3)))
+    transcript = []
+    style = ("\nYou are in a working dialogue with another agent. Keep each "
+             "reply under 120 words, build on what they said, and be concrete. "
+             "On your final turn, state your conclusion.")
+    try:
+        last = f"Let's discuss: {topic}"
+        for t in range(turns):
+            for llm, name, sysp, other in ((llm_a, name_a, sys_a, name_b),
+                                           (llm_b, name_b, sys_b, name_a)):
+                hist = "\n\n".join(f"{m['agent']}: {m['content']}" for m in transcript[-6:])
+                prompt = (f"Topic: {topic}\n\nConversation so far:\n{hist or '(start)'}"
+                          f"\n\n{other} just said: {last}\n\nYour reply"
+                          + (" (final turn — conclude):" if t == turns - 1 else ":"))
+                out = llm.invoke([("system", sysp + style), ("human", prompt)])
+                reply = (out.content if isinstance(out.content, str)
+                         else str(out.content)).strip()
+                transcript.append({"agent": name, "content": reply})
+                last = reply
+    except Exception as e:  # noqa: BLE001
+        if not transcript:
+            return json.dumps({"error": f"{type(e).__name__}: {e}"})
+    return json.dumps({"transcript": transcript}, ensure_ascii=False)
+
+
+# Real directories agents may work on with the `system_files` tools. Colon-
+# separated; defaults to this app's own repo so an "App Improver" team can
+# read and change the code that runs it. Reads are allowed anywhere inside a
+# root; writes are refused in .git/ and data/ (the live SQLite, workspaces and
+# vault — corrupting those is unrecoverable).
+SYSTEM_ROOTS = [os.path.realpath(p) for p in os.environ.get(
+    "AGENTS_SYSTEM_ROOTS",
+    os.path.dirname(os.path.abspath(__file__))).split(":") if p.strip()]
+
+_SYS_WRITE_DENY = (".git" + os.sep, "data" + os.sep)
+
+
+def _sys_resolve(path: str, for_write: bool = False) -> str:
+    """Resolve a path against the allowed roots (absolute or root-relative)."""
+    p = (path or "").strip()
+    candidates = [p] if os.path.isabs(p) else [os.path.join(r, p) for r in SYSTEM_ROOTS]
+    for cand in candidates:
+        full = os.path.realpath(cand)
+        for root in SYSTEM_ROOTS:
+            if full == root or full.startswith(root + os.sep):
+                if for_write:
+                    rel = os.path.relpath(full, root)
+                    if any(rel.startswith(d) for d in _SYS_WRITE_DENY):
+                        raise ValueError(
+                            f"writes into {rel.split(os.sep)[0]}/ are not allowed "
+                            "(runtime data and git internals are read-only)")
+                return full
+    raise ValueError(f"'{path}' is outside the allowed roots: {', '.join(SYSTEM_ROOTS)}")
+
+
+@tool
+def sys_list_files(path: str = ".") -> str:
+    """List real files/folders on this machine, inside the allowed project roots.
+    Start here to orient yourself before reading anything."""
+    try:
+        full = _sys_resolve(path)
+        if not os.path.isdir(full):
+            return f"Error: {path} is not a directory"
+        rows = []
+        for name in sorted(os.listdir(full)):
+            if name in (".git", "__pycache__", "node_modules", ".venv", "venv"):
+                continue
+            p = os.path.join(full, name)
+            rows.append(f"{name}/" if os.path.isdir(p) else
+                        f"{name}  ({os.path.getsize(p)} bytes)")
+        return "\n".join(rows) or "(empty)"
+    except Exception as e:  # noqa: BLE001
+        return f"Error: {e}"
+
+
+@tool
+def sys_read_file(path: str, start_line: int = 1, max_lines: int = 400) -> str:
+    """Read a real file from the project roots, with line numbers.
+    For long files read in chunks: pass start_line to continue."""
+    try:
+        full = _sys_resolve(path)
+        with open(full, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        start = max(1, int(start_line))
+        chunk = lines[start - 1:start - 1 + max(1, int(max_lines))]
+        if not chunk:
+            return f"(file has {len(lines)} lines; start_line {start} is past the end)"
+        out = "".join(f"{start + i:5}| {l}" for i, l in enumerate(chunk))
+        if start - 1 + len(chunk) < len(lines):
+            out += f"\n…[{len(lines) - (start - 1 + len(chunk))} more lines — " \
+                   f"continue with start_line={start + len(chunk)}]"
+        return out
+    except Exception as e:  # noqa: BLE001
+        return f"Error: {e}"
+
+
+@tool
+def sys_edit_file(path: str, old_text: str, new_text: str) -> str:
+    """Change a real project file by replacing an exact snippet — THE way to
+    edit code. old_text must be copied exactly from sys_read_file (without the
+    line-number prefix) and must match exactly one place. Python files that
+    would no longer parse are refused."""
+    try:
+        full = _sys_resolve(path, for_write=True)
+        with open(full, encoding="utf-8") as f:
+            text = f.read()
+        hits = text.count(old_text)
+        if hits == 0:
+            return ("Error: old_text not found — copy it exactly from "
+                    "sys_read_file, WITHOUT the 'NNN| ' line-number prefix.")
+        if hits > 1:
+            return (f"Error: old_text appears {hits} times; include more "
+                    "surrounding lines so it matches exactly once.")
+        updated = text.replace(old_text, new_text)
+        if full.endswith(".py"):
+            try:
+                compile(updated, full, "exec")
+            except SyntaxError as e:
+                return (f"Error: refused — this would leave {path} unparseable "
+                        f"({e.msg}, line {e.lineno}). File unchanged.")
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(updated)
+        return f"Edited {path}: replaced 1 occurrence."
+    except Exception as e:  # noqa: BLE001
+        return f"Error: {e}"
+
+
+@tool
+def sys_write_file(path: str, content: str) -> str:
+    """Create a NEW real file in the project roots (or fully replace a small
+    one). For changing existing code prefer sys_edit_file. Python that would
+    not parse is refused."""
+    try:
+        full = _sys_resolve(path, for_write=True)
+        if full.endswith(".py"):
+            try:
+                compile(content, full, "exec")
+            except SyntaxError as e:
+                return (f"Error: refused — {path} would not parse "
+                        f"({e.msg}, line {e.lineno}). Nothing written.")
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"Wrote {len(content)} chars to {path}"
+    except Exception as e:  # noqa: BLE001
+        return f"Error: {e}"
 
 
 def make_arduino_compile(workspace: str):
@@ -466,6 +709,8 @@ TOOL_CATALOG = {
     "web_search": "Search the web for current information (needs internet)",
     "read_webpage": "Read a web page as clean text (needs internet)",
     "run_python": "Run a Python file from the workspace — executes real code",
+    "system_files": "Read AND EDIT real project files on this machine (allowed roots only)",
+    "agents": "Spawn other agents: ask one a question, or have two discuss (visible in chat)",
     "arduino_compile": "Compile an Arduino sketch with the real AVR toolchain",
     "check_stl": "Check an STL is watertight and 3D-printable",
     "files": "Read/write files in the run workspace",
@@ -590,6 +835,11 @@ def resolve_tools(names: list, workspace: str) -> list:
             tools.append(read_webpage)
         elif n == "run_python":
             tools.append(make_run_python(workspace))
+        elif n == "agents":
+            tools.extend([ask_agent, agent_dialog])
+        elif n == "system_files":
+            tools.extend([sys_list_files, sys_read_file, sys_edit_file,
+                          sys_write_file])
         elif n == "arduino_compile":
             tools.append(make_arduino_compile(workspace))
         elif n == "check_stl":

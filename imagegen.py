@@ -380,9 +380,13 @@ def stop_server() -> dict:
 # API install's model folders, so the 6.7GB checkpoint is shared), we can run
 # it standalone. Its pinned requirements matched the fooocus-api venv exactly
 # at install time, so it reuses that venv — no second torch.
+# NOT under ~/.local like the API install: gradio 3.41 403s any /file= path
+# containing a dot-segment (`.local` counts) BEFORE consulting allowed_paths,
+# which killed every css/js asset and left the UI's checkboxes dead. data/ is
+# dot-free and gitignored.
 FOOOCUS_UI_DIR = os.environ.get(
     "FOOOCUS_UI_DIR",
-    os.path.join(os.path.dirname(FOOOCUS_DIR), "fooocus-ui"))
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "fooocus-ui"))
 FOOOCUS_UI_PORT = int(os.environ.get("FOOOCUS_UI_PORT", "7865"))
 
 

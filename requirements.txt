@@ -18,3 +18,4 @@ trimesh
 numpy
 scipy
 manifold3d
+psutil

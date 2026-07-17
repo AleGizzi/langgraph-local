@@ -50,6 +50,17 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   runs Fooocus's native interface standalone on port 7865 with the same
   models. It and this app's image server can't run together (one GPU); LLM
   replies are slow while either holds the GPU.
+- **Spawning agents in chat**: give a chat agent the "agents" tool and it can
+  consult another persona (ask_agent) or make TWO personas discuss a topic
+  (agent_dialog) — every spawned agent appears as its own violet bubble in the
+  conversation. Spawning is blocked when free RAM is low.
+- **Hallucination check (chat settings)**: optional — after each reply a small
+  local model ESTIMATES how much is confident-but-unverifiable, shown as a 🔮
+  pill per reply plus a conversation average. It is an estimate to guide
+  skepticism, not a measurement.
+- **App Improver team** (Studio): reads and edits THIS app's own source code
+  on request (system_files tools, minimal diffs). Review with `git diff`,
+  restart the app to apply. Writes to .git/ and data/ are blocked.
 - **Knowledge vault structure**: notes live in SUB-VAULTS (folders) — group
   related knowledge by topic. The Knowledge page groups notes by sub-vault;
   each has a 🗑 that deletes the WHOLE topic at once (the "forget it" move),

@@ -273,6 +273,25 @@ def _history_block(history: list) -> str:
     return "\n\n".join(parts)
 
 
+def _spawned_agent_events(tool_name: str, result: str) -> list:
+    """ask_agent / agent_dialog return a JSON transcript; turn each entry into
+    an `agent_msg` event so every spawned agent appears as its own bubble in
+    the chat window instead of being buried inside a tool-result line."""
+    if tool_name not in ("ask_agent", "agent_dialog"):
+        return []
+    try:
+        data = json.loads(result)
+    except (TypeError, ValueError):
+        return []
+    events = []
+    for m in (data.get("transcript") or []):
+        if isinstance(m, dict) and m.get("content"):
+            events.append({"type": "agent_msg",
+                           "agent": str(m.get("agent") or "agent")[:60],
+                           "content": str(m["content"])})
+    return events
+
+
 def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
     """Generator for the Chat page: yields event dicts for one assistant turn.
 
@@ -320,7 +339,16 @@ def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
 
     msgs = [SystemMessage(content=system)]
     for m in messages:
-        cls = HumanMessage if m.get("role") == "user" else AIM
+        role = m.get("role")
+        if role == "agent":
+            # A spawned agent's words are external input to the main model,
+            # not something it said itself — misattributing them as assistant
+            # turns would teach it to impersonate its own sub-agents.
+            msgs.append(HumanMessage(content=(
+                f"[{m.get('name') or 'A spawned agent'} said]\n"
+                f"{m.get('content', '')}")))
+            continue
+        cls = HumanMessage if role == "user" else AIM
         msgs.append(cls(content=str(m.get("content", ""))))
 
     final = ""
@@ -382,6 +410,8 @@ def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
                         r = fn.invoke(args) if fn else f"Unknown tool {name}"
                     except Exception as e:  # noqa: BLE001
                         r = f"Tool error: {e}"
+                    for ev in _spawned_agent_events(name, str(r)):
+                        yield ev
                     yield {"type": "tool_result", "content": str(r)[:1000]}
                     xmsgs.append(ToolMessage(content=str(r),
                                              tool_call_id=call.get("id", name)))
@@ -413,7 +443,15 @@ def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
                 result = fn.invoke(args) if fn else f"Unknown tool {name}"
             except Exception as e:  # noqa: BLE001
                 result = f"Tool error: {e}"
-            yield {"type": "tool_result", "content": str(result)[:1000]}
+            spawned = _spawned_agent_events(name, str(result))
+            if spawned:
+                for ev in spawned:
+                    yield ev
+                yield {"type": "tool_result",
+                       "content": f"({len(spawned)} message(s) from spawned "
+                                  "agent(s) — shown above)"}
+            else:
+                yield {"type": "tool_result", "content": str(result)[:1000]}
             msgs.append(ToolMessage(content=str(result), tool_call_id=call.get("id", name)))
 
     # Context-fill report for the UI gauge: what the window holds now (this

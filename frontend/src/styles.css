@@ -566,6 +566,25 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
   background: var(--accent); border-color: var(--accent); color: #fff;
   border-bottom-right-radius: 4px;
 }
+/* Spawned-agent bubbles (ask_agent / agent_dialog) */
+.chat-msg.agent { flex-direction: column; align-items: flex-start; margin-left: 26px; }
+.agent-msg-name {
+  font-size: 11px; font-weight: 600; color: var(--violet); margin: 0 0 2px 6px;
+}
+.chat-msg.agent .chat-bubble {
+  border-left: 3px solid var(--violet); background: var(--violet-soft);
+}
+
+/* Hallucination-risk pill (Chat, opt-in estimate) */
+.halluc-pill {
+  margin-top: 8px; padding: 2px 9px; display: inline-block; font-size: 11px;
+  border-radius: 999px; border: 1px solid var(--border); cursor: help;
+}
+.halluc-pill em { font-style: normal; opacity: .7; }
+.halluc-pill.ok  { color: var(--green); background: var(--green-soft); border-color: var(--green); }
+.halluc-pill.warm { color: var(--amber); background: var(--amber-soft); border-color: var(--amber); }
+.halluc-pill.hot { color: var(--red); background: var(--red-soft); border-color: var(--red); }
+
 /* Knowledge: sub-vault folders + graph view */
 .kb-folder-head {
   display: flex; align-items: center; justify-content: space-between;

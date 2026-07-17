@@ -5,4 +5,6 @@ from langchain_core.tools import tool
 @tool
 def word_count(text: str) -> str:
     """Count the words in a text. Use when asked how long a text is."""
-    return f"{len(text.split())} words"
+    word_count = len(text.split())
+    char_count = len(text)
+    return f"{word_count} words, {char_count} chars"

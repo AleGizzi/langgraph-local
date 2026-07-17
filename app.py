@@ -576,15 +576,19 @@ def knowledge_graph():
 def _validate_chat(data: dict) -> dict:
     if not isinstance(data, dict):
         abort(400, "invalid body")
+    # "agent" messages are spawned-agent bubbles (ask_agent / agent_dialog) —
+    # kept in history so reopening a chat shows the whole dialog.
     msgs = [m for m in (data.get("messages") or [])
-            if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
+            if isinstance(m, dict) and m.get("role") in ("user", "assistant", "agent")]
     title = (data.get("title") or "").strip()
     if not title:
         first = next((m["content"] for m in msgs if m["role"] == "user"), "")
         title = (str(first)[:64] or "New chat").strip()
     return {"title": title, "agent": data.get("agent") or {},
-            "messages": [{"role": m["role"], "content": str(m.get("content", ""))}
-                         for m in msgs]}
+            "messages": [
+                {"role": m["role"], "content": str(m.get("content", "")),
+                 **({"name": str(m["name"])[:60]} if m.get("name") else {})}
+                for m in msgs]}
 
 
 @app.get("/api/chats")
@@ -658,6 +662,17 @@ def chat():
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/chat/verify")
+def chat_verify():
+    """Hallucination-risk ESTIMATE for one assistant reply (opt-in, judged by
+    a small local model — an estimate, never a measurement)."""
+    import judge
+    body = request.get_json(force=True) or {}
+    return jsonify(judge.estimate(
+        question=body.get("question", ""), reply=body.get("reply", ""),
+        evidence=body.get("evidence", "")))
 
 
 # ---------------- wizard ----------------

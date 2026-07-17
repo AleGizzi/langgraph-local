@@ -10,7 +10,7 @@ const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
  * from the server's `usage` SSE event (real token counts when the provider
  * reports them, a chars/4 estimate otherwise — we show whichever is larger,
  * because Ollama under-reports cached prompt tokens). */
-function ContextGauge({ usage, msgCount, onNewChat }) {
+function ContextGauge({ usage, msgCount, onNewChat, hallucAvg }) {
   if (!usage) return null;
   const reported = (usage.input_tokens || 0) + (usage.output_tokens || 0);
   const used = Math.max(reported, usage.est_tokens || 0);
@@ -28,6 +28,7 @@ function ContextGauge({ usage, msgCount, onNewChat }) {
       <span className="ctx-text">
         🧠 {fmtK(used)} / {fmtK(ctx)} tokens ({pct}%) · {msgCount} messages
         {usage.tok_s ? ` · ${usage.tok_s} tok/s` : ""}
+        {hallucAvg != null ? ` · 🔮 ~${hallucAvg}% est. hallucination risk` : ""}
       </span>
       {level === "hot" && (
         <span className="ctx-warn">
@@ -54,6 +55,11 @@ export default function Chat({ personaId = null }) {
   const [chats, setChats] = useState([]);
   const [chatId, setChatId] = useState(null);
   const [usage, setUsage] = useState(null);
+  const [checkHalluc, setCheckHalluc] = useState(
+    () => localStorage.getItem("chatHallucCheck") === "1");
+  useEffect(() => {
+    localStorage.setItem("chatHallucCheck", checkHalluc ? "1" : "0");
+  }, [checkHalluc]);
   const abortRef = useRef(null);
   const endRef = useRef(null);
   const chatIdRef = useRef(null);
@@ -76,7 +82,7 @@ export default function Chat({ personaId = null }) {
 
   const persist = async (agentCfg, msgs) => {
     const clean = msgs.filter((m) => !m.live)
-      .map(({ role, content }) => ({ role, content }));
+      .map(({ role, content, name }) => (name ? { role, content, name } : { role, content }));
     if (!clean.length) return;
     try {
       if (chatIdRef.current) {
@@ -193,6 +199,16 @@ export default function Chat({ personaId = null }) {
             patch((m) => ({ ...m, content: m.content + ev.content }));
           } else if (ev.type === "tool_call" || ev.type === "tool_result") {
             patch((m) => ({ ...m, tools: [...m.tools, { type: ev.type, text: ev.content }] }));
+          } else if (ev.type === "agent_msg") {
+            // A spawned agent spoke — its own bubble, placed before the live
+            // assistant message so the dialog reads in order.
+            setMessages((ms) => {
+              const next = [...ms];
+              const live = next.pop();
+              next.push({ role: "agent", name: ev.agent, content: ev.content });
+              next.push(live);
+              return next;
+            });
           } else if (ev.type === "usage") {
             setUsage(ev);
           } else if (ev.type === "done") {
@@ -215,6 +231,29 @@ export default function Chat({ personaId = null }) {
     setStreaming(false);
     // Persist the finished turn (functional read of the final state).
     setMessages((ms) => { persist(agent, ms); return ms; });
+    // Optional hallucination-risk estimate for the reply that just finished.
+    if (checkHalluc) {
+      setMessages((ms) => {
+        const i = ms.length - 1; // messages only append, so this index is stable
+        const last = ms[i];
+        if (last?.role === "assistant" && last.content && !last.risk) {
+          const evidence = (last.tools || [])
+            .map((t) => `${t.type}: ${t.text}`).join("\n");
+          api("/chat/verify", { method: "POST", body: {
+            question: text, reply: last.content, evidence,
+          } }).then((r) => {
+            if (!r.ok) return;
+            setMessages((cur) => {
+              if (cur[i]?.role !== "assistant") return cur;
+              const next = [...cur];
+              next[i] = { ...next[i], risk: r };
+              return next;
+            });
+          }).catch(() => {});
+        }
+        return ms;
+      });
+    }
   };
 
   return (
@@ -266,13 +305,14 @@ export default function Chat({ personaId = null }) {
           )}
           {messages.map((m, i) => (
             <div key={i} className={"chat-msg " + m.role}>
+              {m.role === "agent" && <div className="agent-msg-name">{m.name || "spawned agent"}</div>}
               <div className="chat-bubble">
                 {(m.tools || []).map((t, j) => (
                   <div key={j} className={"tool-line" + (t.type === "tool_result" ? " result" : "")}>
                     {t.type === "tool_call" ? "🛠 " : "↳ "}{t.text}
                   </div>
                 ))}
-                {m.role === "assistant"
+                {m.role === "assistant" || m.role === "agent"
                   ? (m.live && !m.content
                     ? <span className="stream-raw"><span className="caret" /></span>
                     : <>
@@ -280,13 +320,26 @@ export default function Chat({ personaId = null }) {
                         {m.live && <span className="caret" />}
                       </>)
                   : m.content}
+                {m.risk?.ok && (
+                  <div className={"halluc-pill " + (m.risk.risk < 34 ? "ok"
+                      : m.risk.risk < 67 ? "warm" : "hot")}
+                    title={"ESTIMATE by " + m.risk.judge + " — not a measurement. "
+                      + "It flags confident, specific, unverifiable claims.\n\n"
+                      + (m.risk.reasons || []).map((r) => "• " + r).join("\n")}>
+                    🔮 hallucination risk ~{m.risk.risk}% <em>(est.)</em>
+                  </div>
+                )}
               </div>
             </div>
           ))}
           <div ref={endRef} />
         </div>
 
-        <ContextGauge usage={usage} msgCount={messages.length} onNewChat={newChat} />
+        <ContextGauge usage={usage} msgCount={messages.length} onNewChat={newChat}
+          hallucAvg={(() => {
+            const rs = messages.filter((m) => m.risk?.ok).map((m) => m.risk.risk);
+            return rs.length ? Math.round(rs.reduce((a, b) => a + b, 0) / rs.length) : null;
+          })()} />
 
         <div className="chat-inputbar">
           <textarea
@@ -320,6 +373,19 @@ export default function Chat({ personaId = null }) {
               </div>
             </div>
             <AgentFields value={agent} onChange={setAgent} namePlaceholder="Persona name" />
+            <div className="field" style={{ marginTop: 10 }}>
+              <label style={{ display: "inline-flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+                <input type="checkbox" checked={checkHalluc}
+                  onChange={(e) => setCheckHalluc(e.target.checked)} />
+                🔮 Hallucination check
+              </label>
+              <div className="help">
+                After each reply, a small local model estimates how much of it is
+                confident-but-unverifiable (~10-20s extra per message). It is an
+                <strong> estimate</strong>, not a measurement — use it as a
+                skepticism guide, especially for numbers, names and citations.
+              </div>
+            </div>
             <div className="help" style={{ marginTop: 10 }}>
               Changes apply from your next message. Conversation history is kept
               in the browser until you clear it.

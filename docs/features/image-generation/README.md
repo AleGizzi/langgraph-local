@@ -207,10 +207,20 @@ to queue without a painted mask; `imagegen.modify()` re-checks server-side.
 ### Fooocus's own web UI (standalone)
 
 The API install is headless, so a separate shallow clone of the full Fooocus
-repo lives at `~/.local/share/local-agents-studio/fooocus-ui`. Its `config.txt`
+repo lives at **`data/fooocus-ui/`** (gitignored). Its `config.txt`
 points every model path at the fooocus-api tree (the 6.7GB checkpoint is
 shared, nothing re-downloads) and it reuses the **fooocus-api venv** — its 24
 pinned requirements matched exactly at install time, so `launch.py` skips pip.
+
+Two hard-won location/patch facts:
+- **It must NOT live under a dot-directory.** gradio 3.41's `/file=` route
+  403s any path containing a dot segment (`.local` counts) *before* checking
+  `allowed_paths` — with the checkout under `~/.local/share/...` every css/js
+  asset died and the UI's checkboxes (Input Image etc.) did nothing because
+  their JavaScript never loaded. That is why it lives in `data/`.
+- `webui.py` carries a one-line local patch adding the install dir to gradio's
+  `allowed_paths` (stock Fooocus only allowlists its outputs folder and leans
+  on cwd heuristics). Re-apply if the checkout is ever re-cloned.
 `GET /api/imagegen/ui` (status) / `POST /api/imagegen/ui/start|stop` manage it;
 `start` **stops the API server first** — one 4GB GPU, mutually exclusive.
 `providers.image_server_running()` also pings port 7865 so Ollama stays

@@ -14,6 +14,51 @@ def _agent(name, role, model, prompt, temperature=0.7, tools=None, provider="oll
 
 SEED_TEAMS = [
     {
+        "name": "App Improver",
+        "icon": "🛠️",
+        "description": "Reads THIS app's own source code and applies small, focused "
+                       "improvements you ask for — a team that maintains the tool it "
+                       "runs inside. Review its work with `git diff` afterwards.",
+        "topology": "pipeline",
+        "settings": {"quality_loop": False},
+        "agents": [
+            _agent("Scout", "Code scout", GENERAL,
+                   "You explore this app's real source code with sys_list_files and "
+                   "sys_read_file to map exactly where the requested change belongs. "
+                   "Report: the file(s) and line ranges involved, how that area works, "
+                   "and what a MINIMAL change looks like. Read before you conclude — "
+                   "never guess at code you have not opened. Start from CLAUDE.md and "
+                   "docs/index.md; they say where things live. You cannot edit; only "
+                   "read and report.", 0.2,
+                   tools=["system_files"]),
+            _agent("Engineer", "Implementation engineer", CODER,
+                   "You change this app's real source files based on the Scout's map. "
+                   "RULES:\n"
+                   "1. MINIMAL DIFF — change exactly what the task needs, match the "
+                   "surrounding style, no drive-by refactors.\n"
+                   "2. sys_read_file the exact region FIRST, then sys_edit_file with "
+                   "old_text copied exactly (no line-number prefixes).\n"
+                   "3. After each edit, sys_read_file the region again to confirm it "
+                   "landed correctly.\n"
+                   "4. Never touch data/ or .git/ (writes there are refused anyway); "
+                   "never try to restart or run the app — the human does that.\n"
+                   "5. Finish with the list of every file you changed and why, so the "
+                   "human can `git diff` it.", 0.15,
+                   tools=["system_files"]),
+            _agent("Reviewer", "Change reviewer", GENERAL,
+                   "You review what the Engineer just changed, with your own eyes: "
+                   "sys_read_file every file it says it touched and check (1) the "
+                   "change matches the task, (2) nothing unrelated was modified, "
+                   "(3) style matches the surroundings, (4) no obvious breakage "
+                   "(undefined names, unbalanced brackets, broken imports). You cannot "
+                   "run the app, so say plainly that this is a static review. End with "
+                   "VERDICT: LGTM or VERDICT: NEEDS WORK plus the concrete issues, and "
+                   "remind the human to review with `git diff` and restart the app to "
+                   "apply.", 0.2,
+                   tools=["system_files"]),
+        ],
+    },
+    {
         "name": "Flask App Factory",
         "icon": "🧪",
         "description": "Turns a one-line idea into a Flask app that is proven to run: "

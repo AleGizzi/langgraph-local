@@ -43,11 +43,21 @@ skill- and tool-drafting (the team-drafting half lives in
    "files": [{"file": "...", "tools": ["..."], "error": "string|null"}],
    "template": "python source for a new custom tool file"}
   ```
-  **`builtin` has 9 entries**: `calculator`, `current_datetime`, `http_get`,
-  `web_search`, `read_webpage`, `run_python`, `files`, `knowledge`,
-  `generate_image` (verified against `tools.TOOL_CATALOG` — keep this list in
-  sync when you add a builtin, it has gone stale before). Note `files` is a
-  *bundle*: it expands to `write_file`, `edit_file`, `read_file`, `list_files`.
+  **`builtin` has 13 entries**: `calculator`, `current_datetime`, `http_get`,
+  `web_search`, `read_webpage`, `run_python`, `arduino_compile`, `check_stl`,
+  `agents`, `system_files`, `files`, `knowledge`, `generate_image` (verified
+  against `tools.TOOL_CATALOG` — keep this list in sync when you add a
+  builtin, it has gone stale before). Bundles expand: `files` →
+  `write_file/edit_file/read_file/list_files`; `agents` →
+  `ask_agent/agent_dialog` (spawn other agents, chat-oriented — see
+  `docs/features/chat/`); `system_files` →
+  `sys_list_files/sys_read_file/sys_edit_file/sys_write_file` — **real
+  project files** under `AGENTS_SYSTEM_ROOTS` (default: this repo), reads
+  anywhere in the roots, writes refused in `.git/` and `data/`, `.py` writes
+  refused if they wouldn't parse. The 🛠️ App Improver seed team uses it to
+  change this app's own source (verified: it added a char count to the
+  word_count custom tool with a correct minimal diff — review its work with
+  `git diff`, restart to apply).
 - `GET /api/tools/files/<filename>` → `{file, code}` (404 if missing).
 - `PUT /api/tools/files/<filename>` `{code}` — writes the file, **reloads
   immediately** so the response reports load errors:
