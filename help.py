@@ -62,6 +62,11 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   own violet bubble showing the REAL model and the seconds it took, so you can
   see they are genuine separate model calls, not the main model role-playing.
   Spawning is blocked when free RAM is low.
+- **Editing tools**: custom tools (the .py files) are edited with the ✏️ button
+  on the Tools tab. Builtin tools can't be edited in place, but each has a
+  "view / fork" button — view its source, or fork it into an editable custom
+  tool (a wrapper that calls the builtin so you can add your own logic around
+  it). Workspace-bound builtins like run_python are view-only.
 - **List vs grid view**: Studio, Personas, and Skills & Tools have a ▦/☰ toggle
   (top right) to switch between card grid and a compact list; the choice is
   remembered per page. Skills & Tools is also split into Skills and Tools tabs.

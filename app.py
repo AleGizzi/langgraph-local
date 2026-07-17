@@ -287,6 +287,15 @@ def tool_file_delete(filename):
     return jsonify({"ok": True})
 
 
+@app.get("/api/tools/builtin/<name>")
+def tool_builtin_source(name):
+    """View a builtin tool's source, and get an editable delegating fork."""
+    r = tools_mod.builtin_source(name)
+    if not r["ok"]:
+        abort(404, r["error"])
+    return jsonify(r)
+
+
 # ---------------- image generation (Fooocus) ----------------
 
 @app.get("/api/imagegen/status")

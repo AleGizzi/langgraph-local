@@ -812,6 +812,53 @@ def validate_tool_code(code: str):
         os.unlink(path)
 
 
+def builtin_source(name: str) -> dict:
+    """A builtin tool's source (read-only view) plus an editable FORK.
+
+    Builtins live in this module with shared helpers and per-run closures, so
+    they can't be edited in place from the UI (that would be editing the app's
+    own running code) and their raw source rarely stands alone. The honest fork
+    is a DELEGATING wrapper: a new custom tool that calls the builtin and gives
+    you a place to add your own pre/post logic. That always runs correctly.
+    Only builtins exposed as a module-level tool object can be delegated to;
+    factory tools (run_python, files, …) that need a workspace are view-only.
+    """
+    import inspect
+    import sys as _sys
+    if name not in TOOL_CATALOG:
+        return {"ok": False, "error": f"'{name}' is not a builtin tool"}
+    import tempfile
+    resolved = resolve_tools([name], tempfile.gettempdir())
+    if not resolved:
+        return {"ok": False, "error": f"could not resolve '{name}'"}
+    mod = _sys.modules[__name__]
+    blocks, wrappers = [], []
+    for t in resolved:
+        fn = getattr(t, "func", None) or getattr(t, "coroutine", None)
+        try:
+            blocks.append(inspect.getsource(fn) if fn else f"# <{t.name}: no source>")
+        except (OSError, TypeError):
+            blocks.append(f"# <{t.name}: source unavailable>")
+        # Delegatable only if this exact tool object is a module attribute.
+        if getattr(mod, t.name, None) is t:
+            args = ", ".join(t.args.keys())
+            call_args = ", ".join(f'"{a}": {a}' for a in t.args)
+            doc = (t.description or "").strip().replace('"""', "'''")
+            wrappers.append(
+                f'@tool\ndef {t.name}_custom({args}) -> str:\n'
+                f'    """{doc}\n\n    (Forked from the builtin `{t.name}` — edit freely.)"""\n'
+                f'    # Your logic here. Delegates to the builtin by default:\n'
+                f'    return _builtins.{t.name}.invoke({{{call_args}}})')
+    source = "\n\n\n".join(blocks)
+    fork_code = None
+    if wrappers:
+        fork_code = ("from langchain_core.tools import tool\nimport tools as _builtins\n\n\n"
+                     + "\n\n\n".join(wrappers) + "\n")
+    return {"ok": True, "error": None, "name": name, "source": source,
+            "forkable": bool(fork_code), "fork_code": fork_code,
+            "fork_filename": f"{name}_custom.py"}
+
+
 def full_catalog() -> dict:
     """Everything the UI and validators need to know about tools."""
     custom_by_name, files = load_custom_tools()

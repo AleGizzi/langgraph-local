@@ -70,10 +70,10 @@ function SkillEditor({ skill, wizard, onClose, onSaved }) {
 
 /* ---------------- custom tool code editor ---------------- */
 
-function ToolFileEditor({ file, template, wizard, onClose, onSaved }) {
+function ToolFileEditor({ file, template, wizard, seed, onClose, onSaved }) {
   const isNew = !file;
-  const [name, setName] = useState(file || "my_tool.py");
-  const [code, setCode] = useState(template);
+  const [name, setName] = useState(file || seed?.filename || "my_tool.py");
+  const [code, setCode] = useState(seed?.code || template);
   const [result, setResult] = useState(null);
 
   useEffect(() => {
@@ -134,6 +134,50 @@ function ToolFileEditor({ file, template, wizard, onClose, onSaved }) {
   );
 }
 
+/* ---------------- builtin source viewer + fork ---------------- */
+
+function BuiltinViewer({ name, onClose, onFork }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api(`/tools/builtin/${name}`).then(setData).catch((e) => toast(e.message, true));
+  }, [name]);
+  return (
+    <div className="modal-back" onClick={(e) => e.target.classList.contains("modal-back") && onClose()}>
+      <div className="modal" style={{ maxWidth: 860 }}>
+        <div className="modal-head">
+          <h2>Builtin tool: <span className="mono">{name}</span></h2>
+          <button className="btn ghost" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="sub" style={{ marginBottom: 10 }}>
+            Builtins are part of the app and can't be edited in place. You can
+            read the source here, and{" "}
+            {data?.forkable
+              ? "fork it into an editable custom tool (a copy that calls the builtin, so you can add your own logic around it)."
+              : "— this one is a workspace-bound tool, so it's view-only (it can't run outside a run)."}
+          </div>
+          {!data ? <div className="help">Loading…</div> : (
+            <div className="field">
+              <label>Source (read-only)</label>
+              <textarea rows={18} readOnly value={data.source}
+                style={{ fontFamily: "var(--mono)", fontSize: 12.5 }} />
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>Close</button>
+          {data?.forkable && (
+            <button className="btn primary"
+              onClick={() => onFork(data.fork_filename, data.fork_code)}>
+              🍴 Fork to editable custom tool
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- page ---------------- */
 
 export default function Toolbox() {
@@ -146,6 +190,8 @@ export default function Toolbox() {
   const [toolWiz, setToolWiz] = useState(false);
   const [tab, setTab] = useState(() => localStorage.getItem("toolbox:tab") || "skills");
   const [skillView, setSkillView] = useViewMode("skills");
+  const [viewBuiltin, setViewBuiltin] = useState(null);   // builtin name being viewed
+  const [forkSeed, setForkSeed] = useState(null);         // {filename, code} for a fork
   useEffect(() => { localStorage.setItem("toolbox:tab", tab); }, [tab]);
 
   const load = () => {
@@ -276,13 +322,20 @@ export default function Toolbox() {
         </div>
 
         <h3 style={{ fontSize: 13, margin: "14px 0 6px" }}>Builtin</h3>
+        <div className="sub" style={{ marginTop: 0, marginBottom: 6 }}>
+          Part of the app — view the source, or fork one into an editable custom tool.
+        </div>
         <table className="assess">
-          <thead><tr><th>Tool</th><th>Description</th></tr></thead>
+          <thead><tr><th>Tool</th><th>Description</th><th></th></tr></thead>
           <tbody>
             {(catalog?.builtin || []).map((t) => (
               <tr key={t.name}>
                 <td className="mono">{t.name}</td>
                 <td>{t.description}</td>
+                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button className="btn sm ghost" style={{ padding: "2px 8px" }}
+                    onClick={() => setViewBuiltin(t.name)}>view / fork</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -338,9 +391,19 @@ export default function Toolbox() {
       )}
       {editFile !== undefined && (
         <ToolFileEditor file={editFile} template={catalog?.template || ""}
-          wizard={toolWiz}
-          onClose={() => setEditFile(undefined)}
-          onSaved={() => reload()} />
+          wizard={toolWiz} seed={forkSeed}
+          onClose={() => { setEditFile(undefined); setForkSeed(null); }}
+          onSaved={() => { reload(); }} />
+      )}
+      {viewBuiltin && (
+        <BuiltinViewer name={viewBuiltin}
+          onClose={() => setViewBuiltin(null)}
+          onFork={(filename, code) => {
+            setViewBuiltin(null);
+            setForkSeed({ filename, code });
+            setToolWiz(false);
+            setEditFile(null);   // open the editor in "new file" mode
+          }} />
       )}
     </>
   );

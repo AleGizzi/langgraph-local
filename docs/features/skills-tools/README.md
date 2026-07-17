@@ -64,6 +64,19 @@ skill- and tool-drafting (the team-drafting half lives in
   `{file, loaded: [tool names], error: string|null}`. `filename` must match
   `[A-Za-z0-9_\-]+\.py`.
 - `DELETE /api/tools/files/<filename>` → `{ok: true}`.
+- `GET /api/tools/builtin/<name>` → `{name, source, forkable, fork_code,
+  fork_filename}`. Builtins live in `tools.py` and are **not editable in
+  place** from the UI (that would edit the running app). Instead you can view
+  a builtin's source and, when `forkable`, **fork** it — `tools.builtin_source`
+  generates a *delegating* custom tool (`from … import tool; import tools as
+  _builtins; def <name>_custom(...): return _builtins.<name>.invoke({...})`)
+  that always runs correctly and gives you a place to add your own logic. Only
+  builtins exposed as a **module-level tool object** are forkable; factory
+  tools bound to a run workspace (`run_python`, `files`, `arduino_compile`,
+  `check_stl`) are view-only. Note: `validate_tool_code` only *defines* the
+  code, it does not call it — so the fork is a runtime-correct wrapper rather
+  than a copy of the builtin's helper-referencing body, which would load fine
+  and then crash when invoked.
 
 ### Wizard — `POST /api/wizard`
 
