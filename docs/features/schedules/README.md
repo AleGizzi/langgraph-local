@@ -46,6 +46,29 @@ the systemd user service or the desktop app (`docs/operations.md`) for 24/7.
   the prompt is appended with an instruction to save its finding as a dated
   note in that folder — a daily check builds a real Obsidian-readable log.
 
+
+## Scheduling a TEAM (not just an agent)
+
+A schedule can run a whole **team** instead of a single agent: set `team_id`
+(the editor's Agent/Team toggle). The team runs through `runmanager` exactly
+like a manual run, so its full timeline lives on the **Runs** page — and the
+schedule's run history links straight to it (`run_id`). `scheduler._run_team`
+starts the run, waits for it to finish (bounded), and summarizes its events
+into the schedule log.
+
+## Debugging: per-run logs
+
+Every scheduled run stores a full **log** (timestamps, tool calls, tool
+results, errors) and the result. The Schedules page → a schedule's *run history
+& logs* → **📋 log** on any row opens a viewer showing the execution log + the
+result; team runs also show an "Open full team run #N" link to the Runs page.
+Endpoint: `GET /api/schedules/runs/<run_id>` → `{log, result, run_id, ok, …}`.
+
+## Editing
+
+Schedules are editable (✏️ on the card): `PUT /api/schedules/<id>` with any
+subset of fields, including switching between agent and team mode.
+
 ## Gotchas
 
 - **Runs are serial and only while the app is up.** A missed window is not

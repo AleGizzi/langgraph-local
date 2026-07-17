@@ -48,19 +48,58 @@ function Sparkline({ runs }) {
   );
 }
 
-function ScheduleEditor({ onClose, onSaved }) {
-  const [name, setName] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [interval, setInterval] = useState(86400);
-  const [track, setTrack] = useState(false);
-  const [folder, setFolder] = useState("");
+function RunLog({ runId, onClose }) {
+  const [data, setData] = useState(null);
+  useEffect(() => { api(`/schedules/runs/${runId}`).then(setData).catch(() => {}); }, [runId]);
+  return (
+    <div className="modal-back" onClick={(e) => e.target.classList.contains("modal-back") && onClose()}>
+      <div className="modal" style={{ maxWidth: 760 }}>
+        <div className="modal-head">
+          <h2>Run log {data?.ok === false && <span className="chip" style={{ color: "var(--red)" }}>failed</span>}</h2>
+          <button className="btn ghost" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          {!data ? <div className="help">Loading…</div> : (
+            <>
+              {data.run_id && (
+                <a className="btn sm" href={`#/run/${data.run_id}`} onClick={onClose}
+                  style={{ marginBottom: 10 }}>🗂️ Open full team run #{data.run_id} →</a>
+              )}
+              <div className="field"><label>Execution log</label>
+                <textarea rows={12} readOnly value={data.log || "(no log captured)"}
+                  style={{ fontFamily: "var(--mono)", fontSize: 12 }} /></div>
+              <div className="field"><label>Result</label>
+                <textarea rows={6} readOnly value={data.result || ""}
+                  style={{ fontSize: 12.5 }} /></div>
+            </>
+          )}
+        </div>
+        <div className="modal-foot"><button className="btn" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleEditor({ schedule, onClose, onSaved }) {
+  const editing = !!schedule?.id;
+  const [name, setName] = useState(schedule?.name || "");
+  const [prompt, setPrompt] = useState(schedule?.prompt || "");
+  const [interval, setInterval] = useState(schedule?.interval_seconds || 86400);
+  const [track, setTrack] = useState(schedule?.track_number || false);
+  const [folder, setFolder] = useState(schedule?.knowledge_folder || "");
+  const [mode, setMode] = useState(schedule?.team_id ? "team" : "agent");
+  const [teamId, setTeamId] = useState(schedule?.team_id || "");
   const [personas, setPersonas] = useState([]);
-  const [agent, setAgent] = useState({
+  const [teams, setTeams] = useState([]);
+  const [agent, setAgent] = useState(schedule?.agent?.model ? schedule.agent : {
     name: "Scheduled agent", provider: "ollama", model: "",
     system_prompt: "You are a precise research assistant.", params: {},
     tools: ["web_search", "read_webpage"], skills: [],
   });
-  useEffect(() => { api("/personas").then(setPersonas).catch(() => {}); }, []);
+  useEffect(() => {
+    api("/personas").then(setPersonas).catch(() => {});
+    api("/teams").then(setTeams).catch(() => {});
+  }, []);
 
   const applyPersona = (p) => setAgent({
     name: p.name, provider: p.model ? p.provider : agent.provider,
@@ -70,14 +109,19 @@ function ScheduleEditor({ onClose, onSaved }) {
 
   const save = async () => {
     if (!prompt.trim()) { toast("Describe the task (prompt)", true); return; }
-    if (!agent.model) { toast("Pick a model", true); return; }
+    if (mode === "agent" && !agent.model) { toast("Pick a model", true); return; }
+    if (mode === "team" && !teamId) { toast("Pick a team", true); return; }
+    const body = {
+      name: name || prompt.slice(0, 40), prompt,
+      interval_seconds: interval, track_number: track,
+      knowledge_folder: folder.trim() || null,
+      team_id: mode === "team" ? +teamId : null,
+      agent: mode === "agent" ? agent : {},
+    };
     try {
-      await api("/schedules", { method: "POST", body: {
-        name: name || prompt.slice(0, 40), prompt, agent,
-        interval_seconds: interval, track_number: track,
-        knowledge_folder: folder.trim() || null,
-      }});
-      toast("Schedule created — it will run on its interval");
+      if (editing) await api(`/schedules/${schedule.id}`, { method: "PUT", body });
+      else await api("/schedules", { method: "POST", body });
+      toast(editing ? "Schedule updated" : "Schedule created — it will run on its interval");
       onSaved();
     } catch (e) { toast(e.message, true); }
   };
@@ -85,13 +129,17 @@ function ScheduleEditor({ onClose, onSaved }) {
   return (
     <div className="modal-back" onClick={(e) => e.target.classList.contains("modal-back") && onClose()}>
       <div className="modal" style={{ maxWidth: 720 }}>
-        <div className="modal-head"><h2>New scheduled task</h2>
+        <div className="modal-head"><h2>{editing ? "Edit schedule" : "New scheduled task"}</h2>
           <button className="btn ghost" onClick={onClose}>✕</button></div>
         <div className="modal-body">
+          <div className="seg" style={{ marginBottom: 12 }}>
+            <button className={mode === "agent" ? "active" : ""} onClick={() => setMode("agent")}>👤 Single agent</button>
+            <button className={mode === "team" ? "active" : ""} onClick={() => setMode("team")}>🎛️ Team</button>
+          </div>
           <div className="field"><label>Name</label>
             <input type="text" value={name} placeholder="e.g. USD/ARS daily check"
               onChange={(e) => setName(e.target.value)} /></div>
-          <div className="field"><label>Task prompt — what the agent should do each time</label>
+          <div className="field"><label>Task prompt — what to do each time</label>
             <textarea rows={3} value={prompt}
               placeholder="e.g. Search the web for the current USD to ARS blue dollar exchange rate and report today's value as a single number."
               onChange={(e) => setPrompt(e.target.value)} /></div>
@@ -108,25 +156,43 @@ function ScheduleEditor({ onClose, onSaved }) {
             <input type="checkbox" checked={track} onChange={(e) => setTrack(e.target.checked)} />
             📈 Track a number — extract the first number from each result and chart its evolution
           </label>
-          <div className="field">
-            <label>Quick-load a persona</label>
-            <div className="persona-strip">
-              {personas.map((p) => (
-                <span key={p.id} className="persona-chip" title={p.description}
-                  onClick={() => applyPersona(p)}>{p.icon} {p.name}</span>
-              ))}
-            </div>
-          </div>
-          <AgentFields value={agent} onChange={setAgent} namePlaceholder="Agent name" />
-          <div className="help" style={{ marginTop: 8 }}>
-            Give the agent web tools (web_search, read_webpage) for tasks that need
-            the internet. Scheduled runs happen only while the app is running —
-            keep it on (or install the systemd service / desktop app) for 24/7.
-          </div>
+
+          {mode === "team" ? (
+            <>
+              <div className="field"><label>Team to run</label>
+                <select value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+                  <option value="">— pick a team —</option>
+                  {teams.map((t) => <option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
+                </select></div>
+              <div className="help">
+                The team runs like a normal run — its full timeline is browsable on
+                the Runs page, and linked from this schedule's history for debugging.
+                Team runs take longer, so pick a wider interval.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="field">
+                <label>Quick-load a persona</label>
+                <div className="persona-strip">
+                  {personas.map((p) => (
+                    <span key={p.id} className="persona-chip" title={p.description}
+                      onClick={() => applyPersona(p)}>{p.icon} {p.name}</span>
+                  ))}
+                </div>
+              </div>
+              <AgentFields value={agent} onChange={setAgent} namePlaceholder="Agent name" />
+              <div className="help" style={{ marginTop: 8 }}>
+                Give the agent web tools (web_search, read_webpage) for tasks that need
+                the internet. Runs happen only while the app is on — keep it running (or
+                use the systemd service / desktop app) for 24/7.
+              </div>
+            </>
+          )}
         </div>
         <div className="modal-foot">
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={save}>Create schedule</button>
+          <button className="btn primary" onClick={save}>{editing ? "Save changes" : "Create schedule"}</button>
         </div>
       </div>
     </div>
@@ -135,8 +201,11 @@ function ScheduleEditor({ onClose, onSaved }) {
 
 export default function Schedules() {
   const [schedules, setSchedules] = useState(null);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(undefined); // undefined=closed, null=new, obj=edit
   const [expanded, setExpanded] = useState({});
+  const [logRun, setLogRun] = useState(null);
+  const [teams, setTeams] = useState([]);
+  useEffect(() => { api("/teams").then(setTeams).catch(() => {}); }, []);
 
   const load = () => api("/schedules").then((d) => setSchedules(d.schedules)).catch(() => setSchedules([]));
   useEffect(() => { load(); const t = window.setInterval(load, 15000); return () => window.clearInterval(t); }, []);
@@ -166,7 +235,7 @@ export default function Schedules() {
             metrics, recurring research. Runs while the app is on.
           </p>
         </div>
-        <button className="btn primary" onClick={() => setEditing(true)}>＋ New schedule</button>
+        <button className="btn primary" onClick={() => setEditing(null)}>＋ New schedule</button>
       </div>
 
       {schedules && !schedules.length && (
@@ -186,7 +255,12 @@ export default function Schedules() {
                 onClick={() => toggle(s)}>
                 <span className="sched-switch-knob" /></button>
               <div className="sched-main">
-                <div className="sched-name">{s.name}</div>
+                <div className="sched-name">
+                  {s.name}
+                  <span className="chip" style={{ marginLeft: 6 }}>
+                    {s.team_id ? `🎛️ ${teams.find((t) => t.id === s.team_id)?.name || "team"}` : "👤 agent"}
+                  </span>
+                </div>
                 <div className="sched-sub">
                   {INTERVALS.find(([, v]) => v === s.interval_seconds)?.[0]
                     || `every ${Math.round(s.interval_seconds / 3600)}h`}
@@ -196,6 +270,7 @@ export default function Schedules() {
                 </div>
               </div>
               <button className="btn sm" onClick={() => runNow(s)}>▶ Run now</button>
+              <button className="icon-btn" title="Edit" onClick={() => setEditing(s)}>✏️</button>
               <button className="icon-btn" title="Delete" onClick={() => del(s)}>🗑️</button>
             </div>
             <div className="sched-prompt">{s.prompt}</div>
@@ -206,10 +281,10 @@ export default function Schedules() {
                 {s.last_result.length > 400 && "…"}
               </div>
             )}
-            {s.runs.length > 1 && (
+            {s.runs.length > 0 && (
               <button className="btn sm ghost" style={{ padding: "3px 8px", marginTop: 6 }}
                 onClick={() => setExpanded((e) => ({ ...e, [s.id]: !e[s.id] }))}>
-                {expanded[s.id] ? "▾" : "▸"} history ({s.runs.length})
+                {expanded[s.id] ? "▾" : "▸"} run history &amp; logs ({s.runs.length})
               </button>
             )}
             {expanded[s.id] && (
@@ -220,6 +295,8 @@ export default function Schedules() {
                     <span className="sched-run-time">{fmtWhen(r.ran_at)}</span>
                     {r.value != null && <span className="chip">{r.value}</span>}
                     <span className="sched-run-result">{(r.result || "").slice(0, 120)}</span>
+                    <button className="btn sm ghost" style={{ padding: "1px 7px", marginLeft: "auto", flexShrink: 0 }}
+                      onClick={() => setLogRun(r.id)}>📋 log</button>
                   </div>
                 ))}
               </div>
@@ -228,8 +305,10 @@ export default function Schedules() {
         );
       })}
 
-      {editing && <ScheduleEditor onClose={() => setEditing(false)}
-        onSaved={() => { setEditing(false); load(); }} />}
+      {editing !== undefined && <ScheduleEditor schedule={editing}
+        onClose={() => setEditing(undefined)}
+        onSaved={() => { setEditing(undefined); load(); }} />}
+      {logRun && <RunLog runId={logRun} onClose={() => setLogRun(null)} />}
     </>
   );
 }

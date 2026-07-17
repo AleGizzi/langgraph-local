@@ -728,13 +728,23 @@ def schedules_list():
     return jsonify({"schedules": out})
 
 
+@app.get("/api/schedules/runs/<int:rid>")
+def schedule_run_log(rid):
+    """Full log + result of one scheduled run, for debugging."""
+    r = storage.get_schedule_run(rid)
+    if not r:
+        abort(404)
+    return jsonify(r)
+
+
 @app.post("/api/schedules")
 def schedules_create():
     body = request.get_json(force=True) or {}
     if not (body.get("prompt") or "").strip():
         abort(400, "prompt is required")
-    if not (body.get("agent") or {}).get("model"):
-        abort(400, "an agent with a model is required")
+    # Either a team (team_id) or a single agent with a model.
+    if not body.get("team_id") and not (body.get("agent") or {}).get("model"):
+        abort(400, "pick a team, or an agent with a model")
     return jsonify(storage.create_schedule(body))
 
 

@@ -1063,3 +1063,11 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
 .res-meta { font-size: 11px; color: var(--text-3); margin-top: 4px; }
 .res-del { align-self: center; margin-right: 8px; opacity: 0; }
 .res-card:hover .res-del { opacity: .7; }
+
+/* Segmented control (agent/team, etc.) */
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
+.seg button {
+  padding: 6px 14px; border: none; background: var(--surface); color: var(--text-2); font-size: 13px; font-weight: 600;
+}
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.active { background: var(--accent); color: #fff; }

@@ -115,7 +115,9 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
     ran_at REAL NOT NULL,
     ok INTEGER NOT NULL,
     result TEXT,
-    value REAL
+    value REAL,
+    log TEXT,
+    run_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sched_runs ON schedule_runs(schedule_id, ran_at);
 CREATE TABLE IF NOT EXISTS resources (
@@ -155,8 +157,10 @@ def set_meta(key: str, value):
 # ---------------- schedules ----------------
 
 def _schedule_row(r) -> dict:
+    keys = r.keys()
     return {"id": r["id"], "name": r["name"], "prompt": r["prompt"],
             "agent": json.loads(r["agent"] or "{}"),
+            "team_id": r["team_id"] if "team_id" in keys else None,
             "interval_seconds": r["interval_seconds"], "enabled": bool(r["enabled"]),
             "track_number": bool(r["track_number"]),
             "knowledge_folder": r["knowledge_folder"],
@@ -180,11 +184,12 @@ def create_schedule(d: dict) -> dict:
     now = time.time()
     with _conn() as c:
         cur = c.execute(
-            "INSERT INTO schedules (name, prompt, agent, interval_seconds, enabled,"
-            " track_number, knowledge_folder, next_run, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO schedules (name, prompt, agent, team_id, interval_seconds,"
+            " enabled, track_number, knowledge_folder, next_run, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (d.get("name", "Scheduled task"), d.get("prompt", ""),
-             json.dumps(d.get("agent", {})), int(d.get("interval_seconds", 86400)),
+             json.dumps(d.get("agent", {})), d.get("team_id"),
+             int(d.get("interval_seconds", 86400)),
              int(bool(d.get("enabled", True))), int(bool(d.get("track_number", False))),
              d.get("knowledge_folder"), now, now))
         sid = cur.lastrowid
@@ -198,13 +203,13 @@ def update_schedule(sid: int, d: dict):
     m = {**cur, **d}
     with _conn() as c:
         c.execute(
-            "UPDATE schedules SET name=?, prompt=?, agent=?, interval_seconds=?,"
-            " enabled=?, track_number=?, knowledge_folder=?, last_run=?,"
-            " last_result=?, next_run=? WHERE id=?",
-            (m["name"], m["prompt"], json.dumps(m["agent"]), int(m["interval_seconds"]),
-             int(bool(m["enabled"])), int(bool(m["track_number"])),
-             m.get("knowledge_folder"), m.get("last_run"), m.get("last_result"),
-             m.get("next_run"), sid))
+            "UPDATE schedules SET name=?, prompt=?, agent=?, team_id=?,"
+            " interval_seconds=?, enabled=?, track_number=?, knowledge_folder=?,"
+            " last_run=?, last_result=?, next_run=? WHERE id=?",
+            (m["name"], m["prompt"], json.dumps(m["agent"]), m.get("team_id"),
+             int(m["interval_seconds"]), int(bool(m["enabled"])),
+             int(bool(m["track_number"])), m.get("knowledge_folder"),
+             m.get("last_run"), m.get("last_result"), m.get("next_run"), sid))
     return get_schedule(sid)
 
 
@@ -214,22 +219,42 @@ def delete_schedule(sid: int):
         c.execute("DELETE FROM schedules WHERE id=?", (sid,))
 
 
-def add_schedule_run(sid: int, ok: bool, result: str, value=None) -> int:
+def add_schedule_run(sid: int, ok: bool, result: str, value=None,
+                     log: str = None, run_id: int = None) -> int:
     with _conn() as c:
         cur = c.execute(
-            "INSERT INTO schedule_runs (schedule_id, ran_at, ok, result, value)"
-            " VALUES (?,?,?,?,?)",
-            (sid, time.time(), int(bool(ok)), (result or "")[:8000], value))
+            "INSERT INTO schedule_runs (schedule_id, ran_at, ok, result, value, log, run_id)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (sid, time.time(), int(bool(ok)), (result or "")[:8000], value,
+             (log or "")[:40000] or None, run_id))
         return cur.lastrowid
 
 
-def list_schedule_runs(sid: int, limit: int = 200) -> list:
+def list_schedule_runs(sid: int, limit: int = 200, with_log: bool = False) -> list:
     with _conn() as c:
         rows = c.execute(
             "SELECT * FROM schedule_runs WHERE schedule_id=? ORDER BY ran_at ASC"
             " LIMIT ?", (sid, limit)).fetchall()
-    return [{"id": r["id"], "ran_at": r["ran_at"], "ok": bool(r["ok"]),
-             "result": r["result"], "value": r["value"]} for r in rows]
+    out = []
+    for r in rows:
+        keys = r.keys()
+        d = {"id": r["id"], "ran_at": r["ran_at"], "ok": bool(r["ok"]),
+             "result": r["result"], "value": r["value"],
+             "run_id": r["run_id"] if "run_id" in keys else None}
+        if with_log:
+            d["log"] = r["log"] if "log" in keys else None
+        out.append(d)
+    return out
+
+
+def get_schedule_run(rid: int):
+    with _conn() as c:
+        r = c.execute("SELECT * FROM schedule_runs WHERE id=?", (rid,)).fetchone()
+    if not r:
+        return None
+    return {"id": r["id"], "schedule_id": r["schedule_id"], "ran_at": r["ran_at"],
+            "ok": bool(r["ok"]), "result": r["result"], "value": r["value"],
+            "log": r["log"], "run_id": r["run_id"]}
 
 
 # ---------------- resources (AI news / trainings) ----------------
@@ -275,6 +300,15 @@ def init_db():
         if "sprite" not in pcols:
             c.execute("ALTER TABLE personas ADD COLUMN sprite TEXT")
             c.execute("ALTER TABLE personas ADD COLUMN sprite_meta TEXT")
+        # Schedules gained team scheduling + per-run debug logs after first ship.
+        scols = {r["name"] for r in c.execute("PRAGMA table_info(schedules)")}
+        if scols and "team_id" not in scols:
+            c.execute("ALTER TABLE schedules ADD COLUMN team_id INTEGER")
+        srcols = {r["name"] for r in c.execute("PRAGMA table_info(schedule_runs)")}
+        if srcols and "log" not in srcols:
+            c.execute("ALTER TABLE schedule_runs ADD COLUMN log TEXT")
+        if srcols and "run_id" not in srcols:
+            c.execute("ALTER TABLE schedule_runs ADD COLUMN run_id INTEGER")
 
 
 def _team_row_to_dict(r) -> dict:

@@ -50,27 +50,89 @@ def _extract_number(text: str):
         return None
 
 
-def run_schedule(sid: int) -> dict:
-    """Run one schedule NOW (also used by the 'run now' button). Never raises."""
+def _fmt_ts():
+    return time.strftime("%H:%M:%S")
+
+
+def _run_team(sch: dict, prompt: str):
+    """Run a scheduled TEAM to completion. Returns (final, err, log, run_id).
+    The team run also lands in the Runs page, so its full timeline is browsable
+    there; here we capture a compact log for the schedule's own history."""
+    import runmanager
+    team = storage.get_team(sch["team_id"])
+    if not team:
+        return "", f"team {sch['team_id']} no longer exists", "", None
+    run_id = runmanager.manager.start(team, prompt)
+    log = [f"[{_fmt_ts()}] team run #{run_id} started ({team['name']})"]
+    # Wait for the run thread to finish (bounded — a scheduled run shouldn't
+    # hang the scheduler forever).
+    deadline = time.time() + 3600
+    while time.time() < deadline:
+        active = runmanager.manager.get(run_id)
+        if active is None or active.done:
+            break
+        time.sleep(3)
+    row = storage.get_run(run_id) or {}
+    final = row.get("final") or ""
+    err = row.get("error")
+    status = row.get("status", "unknown")
+    # Summarize the run's events into the schedule log for quick debugging.
+    try:
+        for e in storage.get_events(run_id):
+            t = e.get("type")
+            if t in ("agent_start", "tool_call", "tool_result", "decision", "run_end"):
+                c = (e.get("content") or "").splitlines()[0][:120]
+                log.append(f"[{t}] {e.get('agent') or ''} {c}".rstrip())
+    except Exception:  # noqa: BLE001
+        pass
+    log.append(f"[{_fmt_ts()}] run #{run_id} finished: {status}")
+    return final, err, "\n".join(log), run_id
+
+
+def _run_agent(sch: dict, prompt: str):
+    """Run a scheduled single agent, capturing a full event log."""
     import engine
-    sch = storage.get_schedule(sid)
-    if not sch:
-        return {"ok": False, "error": "no such schedule"}
-    os.makedirs(_WORKSPACE, exist_ok=True)
     agent = dict(sch["agent"] or {})
     agent.setdefault("provider", "ollama")
-    # If the task appends to a knowledge folder, the agent needs the tool + a
-    # nudge; we add it non-destructively.
     if sch.get("knowledge_folder"):
         tools = list(agent.get("tools") or [])
         if "knowledge" not in tools:
             tools.append("knowledge")
         agent["tools"] = tools
-
     try:
         skill_map = {s["name"]: s for s in storage.list_skills()}
     except Exception:  # noqa: BLE001
         skill_map = {}
+
+    log = [f"[{_fmt_ts()}] agent {agent.get('model', '?')} started",
+           f"prompt: {prompt[:300]}"]
+    final, err = "", None
+    try:
+        for ev in engine.chat_stream(agent, [{"role": "user", "content": prompt}],
+                                     _WORKSPACE, skill_map):
+            t = ev.get("type")
+            if t == "tool_call":
+                log.append(f"[tool_call] {ev.get('content', '')[:160]}")
+            elif t == "tool_result":
+                log.append(f"[tool_result] {(ev.get('content') or '').splitlines()[0][:160]}")
+            elif t == "done":
+                final = ev.get("content") or final
+            elif t == "error":
+                err = ev.get("content")
+                log.append(f"[error] {err}")
+    except Exception as e:  # noqa: BLE001 - a scheduled run must never crash the loop
+        err = f"{type(e).__name__}: {e}"
+        log.append(f"[exception] {err}")
+    log.append(f"[{_fmt_ts()}] finished ({'ok' if (not err and final.strip()) else 'failed'})")
+    return final, err, "\n".join(log), None
+
+
+def run_schedule(sid: int) -> dict:
+    """Run one schedule NOW (also used by the 'run now' button). Never raises."""
+    sch = storage.get_schedule(sid)
+    if not sch:
+        return {"ok": False, "error": "no such schedule"}
+    os.makedirs(_WORKSPACE, exist_ok=True)
 
     prompt = sch["prompt"]
     if sch.get("knowledge_folder"):
@@ -78,26 +140,20 @@ def run_schedule(sid: int) -> dict:
                    f"folder '{sch['knowledge_folder']}' using the knowledge tool, "
                    "with today's date, so it accumulates over time.")
 
-    final, err = "", None
-    try:
-        for ev in engine.chat_stream(agent, [{"role": "user", "content": prompt}],
-                                     _WORKSPACE, skill_map):
-            if ev.get("type") == "done":
-                final = ev.get("content") or final
-            elif ev.get("type") == "error":
-                err = ev.get("content")
-    except Exception as e:  # noqa: BLE001 - a scheduled run must never crash the loop
-        err = f"{type(e).__name__}: {e}"
+    if sch.get("team_id"):
+        final, err, log, run_id = _run_team(sch, prompt)
+    else:
+        final, err, log, run_id = _run_agent(sch, prompt)
 
-    ok = not err and bool(final.strip())
+    ok = not err and bool((final or "").strip())
     result = final if ok else (err or "no output")
     value = _extract_number(final) if (ok and sch.get("track_number")) else None
-    storage.add_schedule_run(sid, ok, result, value)
+    storage.add_schedule_run(sid, ok, result, value, log=log, run_id=run_id)
     now = time.time()
     storage.update_schedule(sid, {
         "last_run": now, "last_result": result[:2000],
         "next_run": now + max(60, int(sch["interval_seconds"]))})
-    return {"ok": ok, "error": err, "result": result, "value": value}
+    return {"ok": ok, "error": err, "result": result, "value": value, "run_id": run_id}
 
 
 def _due():
