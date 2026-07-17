@@ -78,15 +78,95 @@ function NoteEditor({ folders, onClose, onSaved }) {
   );
 }
 
-/* Obsidian-style graph: force-directed layout on a canvas, colored by
- * sub-vault. Pure canvas, no library — the vault is hundreds of notes at
- * most, so an O(n²) simulation precomputed on load is plenty. */
+/* Obsidian-style graph v2: one organic force layout on canvas, no library.
+ * Notes cluster into folder "galaxies" (each sub-vault has an invisible
+ * centroid arranged on a ring; its notes feel a gentle pull toward it), links
+ * pull related notes together across galaxies, and hovering highlights a note
+ * with its neighbors. Colors come from the live CSS variables so the graph
+ * matches light/dark mode. */
 function VaultGraph({ folders, onOpen }) {
   const canvasRef = useRef(null);
   const [graph, setGraph] = useState(null);
   const nodesRef = useRef([]);
+  const edgesRef = useRef([]);
+  const hoverRef = useRef(null);
 
   useEffect(() => { api("/knowledge/graph").then(setGraph).catch(() => {}); }, []);
+
+  const cssVar = (name, fallback) =>
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+
+  const draw = () => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    const W = cv.clientWidth, H = Math.max(420, cv.clientHeight);
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const nodes = nodesRef.current, edges = edgesRef.current;
+    const hover = hoverRef.current;
+    const textCol = cssVar("--text-3", "#98a2b3");
+    const dimText = cssVar("--border-strong", "#d0d5dd");
+    const neighbors = new Set();
+    if (hover != null) {
+      neighbors.add(hover);
+      for (const e of edges) {
+        if (e.a === hover) neighbors.add(e.b);
+        if (e.b === hover) neighbors.add(e.a);
+      }
+    }
+    // edges
+    for (const e of edges) {
+      const active = hover != null && (e.a === hover || e.b === hover);
+      ctx.strokeStyle = active ? cssVar("--accent", "#155eef") : textCol;
+      ctx.globalAlpha = hover == null ? 0.28 : active ? 0.9 : 0.07;
+      ctx.lineWidth = active ? 1.6 : 1;
+      ctx.beginPath();
+      ctx.moveTo(nodes[e.a].x, nodes[e.a].y);
+      ctx.lineTo(nodes[e.b].x, nodes[e.b].y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    // nodes
+    const folderNames = folders.map((f) => f.name).filter(Boolean);
+    nodes.forEach((n, i) => {
+      const r = 3.5 + Math.min(7, n.deg * 1.5);
+      const dimmed = hover != null && !neighbors.has(i);
+      ctx.globalAlpha = dimmed ? 0.18 : 1;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      if (n.ghost) {
+        ctx.fillStyle = textCol;
+        ctx.globalAlpha = dimmed ? 0.1 : 0.35;
+        ctx.fill();
+        ctx.globalAlpha = dimmed ? 0.18 : 0.8;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = textCol;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        ctx.fillStyle = folderColor(n.folder, folderNames);
+        ctx.fill();
+        if (i === hover) {
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = cssVar("--text", "#101828");
+          ctx.stroke();
+        }
+      }
+      // labels: hubs always, everything on hover-neighborhood
+      const showLabel = i === hover || (hover != null && neighbors.has(i))
+        || (hover == null && n.deg >= 2) || nodes.length <= 25;
+      if (showLabel) {
+        ctx.globalAlpha = dimmed ? 0.2 : 1;
+        ctx.font = (i === hover ? "600 11px" : "10px") + " -apple-system, sans-serif";
+        ctx.fillStyle = i === hover ? cssVar("--text", "#101828")
+          : hover != null && neighbors.has(i) ? cssVar("--text-2", "#475467") : dimText;
+        const label = n.title.length > 30 ? n.title.slice(0, 29) + "…" : n.title;
+        ctx.fillText(label, n.x + r + 4, n.y + 3.5);
+      }
+    });
+    ctx.globalAlpha = 1;
+  };
 
   useEffect(() => {
     if (!graph) return;
@@ -94,10 +174,7 @@ function VaultGraph({ folders, onOpen }) {
     if (!cv) return;
     const W = cv.clientWidth, H = Math.max(420, cv.clientHeight);
     cv.width = W * devicePixelRatio; cv.height = H * devicePixelRatio;
-    const ctx = cv.getContext("2d");
-    ctx.scale(devicePixelRatio, devicePixelRatio);
 
-    const folderNames = folders.map((f) => f.name).filter(Boolean);
     const nodes = graph.nodes.map((n) => ({ ...n, x: 0, y: 0, vx: 0, vy: 0, deg: 0 }));
     const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
     const edges = graph.edges
@@ -105,106 +182,99 @@ function VaultGraph({ folders, onOpen }) {
       .map((e) => ({ a: idx[e.from], b: idx[e.to] }));
     edges.forEach((e) => { nodes[e.a].deg++; nodes[e.b].deg++; });
 
-    // Most vault notes have no links yet; force-simulating them just blasts
-    // them into the walls. Only CONNECTED notes get the simulation (upper
-    // area); isolated notes sit in a tidy grid along the bottom, sorted by
-    // folder so their colors cluster.
-    const linked = nodes.filter((n) => n.deg > 0);
-    const loose = nodes.filter((n) => n.deg === 0)
-      .sort((a, b) => (a.folder || "").localeCompare(b.folder || ""));
-    const perRow = Math.max(1, Math.floor((W - 40) / 26));
-    const gridRows = Math.max(1, Math.ceil(loose.length / perRow));
-    const gridH = loose.length ? Math.min(H * 0.4, gridRows * 22 + 36) : 0;
-    const simH = H - gridH;
-    loose.forEach((n, i) => {
-      n.x = 26 + (i % perRow) * 26;
-      n.y = simH + 26 + Math.floor(i / perRow) * 22;
+    // Layout: unlinked notes get DETERMINISTIC per-folder sunflower clusters
+    // arranged on a ring (physics kept blasting them into the walls — twice);
+    // only the linked subgraph is force-simulated, in the middle.
+    const groupOf = (n) => (n.ghost ? "__ghost__" : n.folder || "__root__");
+    const linked = [], loose = [];
+    nodes.forEach((n, i) => (n.deg > 0 ? linked : loose).push(i));
+
+    const byGroup = {};
+    for (const i of loose) (byGroup[groupOf(nodes[i])] ||= []).push(i);
+    const groups = Object.keys(byGroup);
+    const GA = Math.PI * (3 - Math.sqrt(5)); // golden angle
+    groups.forEach((g, gi) => {
+      const members = byGroup[g];
+      const ang = (gi / Math.max(1, groups.length)) * Math.PI * 2 - Math.PI / 2;
+      const ringR = Math.min(W, H) * 0.36;
+      const cx = W / 2 + Math.cos(ang) * ringR;
+      const cy = H / 2 + Math.sin(ang) * ringR * 0.82;
+      members.forEach((i, mi) => {
+        const r = 9 * Math.sqrt(mi + 0.6);
+        const th = mi * GA;
+        nodes[i].x = Math.max(14, Math.min(W - 120, cx + Math.cos(th) * r));
+        nodes[i].y = Math.max(14, Math.min(H - 14, cy + Math.sin(th) * r));
+      });
     });
-    linked.forEach((n, i) => {
-      n.x = W / 2 + Math.cos(i * 2.4) * (40 + i * 6);
-      n.y = simH / 2 + Math.sin(i * 2.4) * (30 + i * 4);
+
+    // force sim for the linked subgraph only (params proven on this vault)
+    const lidx = new Map(linked.map((i, li) => [i, li]));
+    const L = linked.map((i) => nodes[i]);
+    const ledges = edges.filter((e) => lidx.has(e.a) && lidx.has(e.b))
+      .map((e) => ({ a: lidx.get(e.a), b: lidx.get(e.b) }));
+    L.forEach((n, i) => {
+      n.x = W / 2 + Math.cos(i * 2.4) * (40 + i * 5);
+      n.y = H / 2 + Math.sin(i * 2.4) * (30 + i * 4);
     });
-    const lidx = new Map(linked.map((n, i) => [idx[n.id], i]));
-    const ledges = edges.map((e) => ({ a: lidx.get(e.a), b: lidx.get(e.b) }));
-    for (let it = 0; it < 240; it++) {
-      const k = 1 - it / 280; // cooling
-      for (let i = 0; i < linked.length; i++) {
-        for (let j = i + 1; j < linked.length; j++) {
-          const a = linked[i], b = linked[j];
+    for (let it = 0; it < 260; it++) {
+      const k = 1 - it / 300;
+      for (let i = 0; i < L.length; i++) {
+        for (let j = i + 1; j < L.length; j++) {
+          const a = L[i], b = L[j];
           const dx = a.x - b.x, dy = a.y - b.y;
-          const d2 = dx * dx + dy * dy || 1;
-          const rep = 650 / d2;
+          const d2 = Math.max(dx * dx + dy * dy, 60);
+          const rep = 380 / d2;
           a.vx += dx * rep * k; a.vy += dy * rep * k;
           b.vx -= dx * rep * k; b.vy -= dy * rep * k;
         }
       }
       for (const e of ledges) {
-        const a = linked[e.a], b = linked[e.b];
+        const a = L[e.a], b = L[e.b];
         const dx = b.x - a.x, dy = b.y - a.y;
         a.vx += dx * 0.03 * k; a.vy += dy * 0.03 * k;
         b.vx -= dx * 0.03 * k; b.vy -= dy * 0.03 * k;
       }
-      for (const n of linked) {
-        n.vx += (W / 2 - n.x) * 0.01; n.vy += (simH / 2 - n.y) * 0.01;
-        n.x += Math.max(-12, Math.min(12, n.vx));
-        n.y += Math.max(-12, Math.min(12, n.vy));
+      for (const n of L) {
+        n.vx += (W / 2 - n.x) * 0.022; n.vy += (H / 2 - n.y) * 0.022;
+        n.x += Math.max(-10, Math.min(10, n.vx));
+        n.y += Math.max(-10, Math.min(10, n.vy));
         n.vx *= 0.55; n.vy *= 0.55;
         n.x = Math.max(20, Math.min(W - 130, n.x));
-        n.y = Math.max(18, Math.min(simH - 14, n.y));
+        n.y = Math.max(18, Math.min(H - 18, n.y));
       }
     }
     nodesRef.current = nodes;
-
-    // draw
-    ctx.clearRect(0, 0, W, H);
-    if (loose.length && linked.length) {
-      // faint separator between the linked graph and the unlinked grid
-      ctx.strokeStyle = "rgba(128,138,157,.25)";
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath(); ctx.moveTo(12, simH + 6); ctx.lineTo(W - 12, simH + 6); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    ctx.strokeStyle = "rgba(128,138,157,.35)";
-    ctx.lineWidth = 1;
-    for (const e of edges) {
-      ctx.beginPath();
-      ctx.moveTo(nodes[e.a].x, nodes[e.a].y);
-      ctx.lineTo(nodes[e.b].x, nodes[e.b].y);
-      ctx.stroke();
-    }
-    for (const n of nodes) {
-      const r = 4 + Math.min(6, n.deg * 1.4);
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-      if (n.ghost) {
-        ctx.fillStyle = "rgba(152,162,179,.35)";
-        ctx.fill();
-        ctx.setLineDash([3, 3]);
-        ctx.strokeStyle = "#98a2b3";
-        ctx.stroke();
-        ctx.setLineDash([]);
-      } else {
-        ctx.fillStyle = folderColor(n.folder, folderNames);
-        ctx.fill();
-      }
-      if (n.deg > 0 || nodes.length <= 40) {
-        ctx.fillStyle = "#98a2b3";
-        ctx.font = "10px sans-serif";
-        ctx.fillText(n.title.slice(0, 26), n.x + r + 3, n.y + 3);
-      }
-    }
+    edgesRef.current = edges;
+    hoverRef.current = null;
+    draw();
   }, [graph, folders]);
 
-  const click = (e) => {
+  const nodeAt = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    let best = null, bd = 15 * 15;
-    for (const n of nodesRef.current) {
+    let best = null, bd = 14 * 14;
+    nodesRef.current.forEach((n, i) => {
       const d = (n.x - x) ** 2 + (n.y - y) ** 2;
-      if (d < bd) { bd = d; best = n; }
+      if (d < bd) { bd = d; best = i; }
+    });
+    return best;
+  };
+
+  const move = (e) => {
+    const h = nodeAt(e);
+    if (h !== hoverRef.current) {
+      hoverRef.current = h;
+      canvasRef.current.style.cursor = h != null ? "pointer" : "default";
+      draw();
     }
-    if (best && !best.ghost) onOpen(best.id);
-    else if (best?.ghost) toast(`"${best.title}" is a ghost — linked but no note exists yet`);
+  };
+
+  const click = (e) => {
+    const i = nodeAt(e);
+    if (i == null) return;
+    const n = nodesRef.current[i];
+    if (!n.ghost) onOpen(n.id);
+    else toast(`"${n.title}" is a ghost — linked but no note exists yet`);
   };
 
   const folderNames = folders.map((f) => f.name).filter(Boolean);
@@ -217,13 +287,15 @@ function VaultGraph({ folders, onOpen }) {
               <div className="big">🕸️</div>No notes yet — the graph draws itself as knowledge accumulates.
             </div>
           : <>
-              <canvas ref={canvasRef} onClick={click}
-                style={{ width: "100%", height: "100%", cursor: "pointer" }} />
+              <canvas ref={canvasRef} onClick={click} onPointerMove={move}
+                onPointerLeave={() => { hoverRef.current = null; draw(); }}
+                style={{ width: "100%", height: "100%" }} />
               <div className="kb-graph-legend">
                 {folderNames.map((f) => (
                   <span key={f}><i style={{ background: folderColor(f, folderNames) }} />{f}</span>
                 ))}
                 <span><i style={{ background: "#98a2b3", opacity: .5 }} />ghost (linked, not written)</span>
+                <span style={{ opacity: .7 }}>hover to explore · click to open</span>
               </div>
             </>}
     </div>

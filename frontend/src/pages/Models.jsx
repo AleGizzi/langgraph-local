@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useApp } from "../App.jsx";
 import CatalogTable from "../components/CatalogTable.jsx";
 import ImageGen from "../components/ImageGen.jsx";
+import VideoMaker from "../components/VideoMaker.jsx";
 import ModelCard from "../components/ModelCard.jsx";
 
 export default function Models() {
@@ -59,6 +60,7 @@ export default function Models() {
         <CatalogTable compact />
       </div>
       <ImageGen />
+      <VideoMaker />
     </>
   );
 }

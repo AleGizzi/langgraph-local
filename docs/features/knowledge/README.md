@@ -51,6 +51,14 @@ tool can search/read/write notes mid-run.
   exist become `ghost: true` nodes with `id: "ghost:<slug>"`, exactly like
   Obsidian's faded ghost nodes.
 
+  **Rendering (v2, hard-won):** `VaultGraph` in `Knowledge.jsx` gives
+  *unlinked* notes deterministic per-folder sunflower clusters arranged on a
+  ring — do NOT force-simulate them; that was tried twice and repulsion
+  blasted them into the canvas walls both times. Only the linked subgraph is
+  force-simulated, centered (rep 380, spring 0.03, gravity 0.022). Hover
+  highlights a node + neighbors and reveals labels (hubs deg≥2 labeled
+  always); colors come from live CSS variables so dark mode works.
+
 ## How it works
 
 - **Location**: `data/knowledge/` by default; override with `AGENTS_KNOWLEDGE`

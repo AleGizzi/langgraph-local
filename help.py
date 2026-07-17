@@ -50,6 +50,11 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   runs Fooocus's native interface standalone on port 7865 with the same
   models. It and this app's image server can't run together (one GPU); LLM
   replies are slow while either holds the GPU.
+- **Video Maker** (Models page, 🎬 panel): describe a video idea, an LLM drafts
+  the shots, Fooocus renders one still per shot, and ffmpeg assembles them
+  into an mp4 with pan/zoom and crossfades. Edit each shot's prompt and
+  duration before generating. This is slideshow-style video — real video
+  diffusion needs far more GPU than this machine has.
 - **Spawning agents in chat**: give a chat agent the "agents" tool and it can
   consult another persona (ask_agent) or make TWO personas discuss a topic
   (agent_dialog) — every spawned agent appears as its own violet bubble in the

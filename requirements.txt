@@ -19,3 +19,4 @@ numpy
 scipy
 manifold3d
 psutil
+imageio-ffmpeg

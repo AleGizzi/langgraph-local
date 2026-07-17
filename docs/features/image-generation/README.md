@@ -228,6 +228,30 @@ CPU-only while the standalone UI holds the GPU. UI: the "🎛️ Prefer Fooocus'
 own interface?" strip on the Models page (shown in both server-up and
 server-down states).
 
+### Video Maker (`videomaker.py`)
+
+Idea → LLM shot list → one Fooocus still per shot → ffmpeg assembly (Ken Burns
+zoompan alternating in/out per shot + `xfade` crossfades, 1280x720 H.264).
+**Honest scope**: real video diffusion needs 8-24GB VRAM; this is the pipeline
+a 4GB GPU can deliver — animated slideshows from generated stills.
+
+- ffmpeg comes from **imageio-ffmpeg** (pip, bundles a static binary — no
+  sudo/apt needed). `videomaker._ffmpeg()` resolves it.
+- A project is `data/videos/<slug>.json` + the finished `<slug>.mp4`. Stills
+  ride the existing image queue (`imgqueue.add`, aspect `1280*768` — the
+  closest SDXL bucket to 16:9), so they inherit durability + GPU
+  serialization; `_refresh_stills()` pulls finished job images into the
+  project on every list call.
+- API: `POST /api/video/plan {idea, shots}` (LLM drafts, defensive JSON
+  parse), `POST /api/video {title, shots}` (creates + queues stills),
+  `GET /api/video`, `POST /api/video/<id>/assemble` (background thread,
+  status: generating → ready → assembling → done/error),
+  `GET /api/video/file/<name>.mp4`, `DELETE /api/video/<id>`.
+- UI: "🎬 Video Maker" panel on the Models page — draft, edit each shot's
+  prompt/duration, generate, assemble, watch inline.
+- Assembly is CPU-only (safe to run while Ollama holds the GPU); generation
+  is not (it's Fooocus like everything else).
+
 ### Prompt assistant, job queue, and the prompt library
 
 **Prompt assistant** (`imgprompt.py`, `POST /api/imagegen/prompt-assist`)

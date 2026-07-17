@@ -664,6 +664,62 @@ def chat():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# ---------------- video maker ----------------
+
+@app.post("/api/video/plan")
+def video_plan():
+    """LLM drafts a shot list for a video idea."""
+    import videomaker
+    body = request.get_json(force=True) or {}
+    idea = (body.get("idea") or "").strip()
+    if not idea:
+        abort(400, "idea is required")
+    return jsonify(videomaker.plan_shots(idea, n=body.get("shots") or 5,
+                                         provider=body.get("provider"),
+                                         model=body.get("model")))
+
+
+@app.get("/api/video")
+def video_list():
+    import videomaker
+    return jsonify({"projects": videomaker.list_projects()})
+
+
+@app.post("/api/video")
+def video_create():
+    import videomaker
+    body = request.get_json(force=True) or {}
+    r = videomaker.create(body.get("title") or "", body.get("shots") or [],
+                          performance=body.get("performance"))
+    if not r["ok"]:
+        abort(400, r["error"])
+    return jsonify(r)
+
+
+@app.post("/api/video/<pid>/assemble")
+def video_assemble(pid):
+    import videomaker
+    r = videomaker.assemble(pid)
+    if not r["ok"]:
+        abort(400, r["error"])
+    return jsonify(r)
+
+
+@app.delete("/api/video/<pid>")
+def video_delete(pid):
+    import videomaker
+    return jsonify(videomaker.delete(pid))
+
+
+@app.get("/api/video/file/<name>")
+def video_file(name):
+    import videomaker
+    from flask import send_from_directory
+    if not re.fullmatch(r"[a-z0-9-]+\.mp4", name):
+        abort(404)
+    return send_from_directory(videomaker.VIDEOS_DIR, name)
+
+
 @app.post("/api/chat/verify")
 def chat_verify():
     """Hallucination-risk ESTIMATE for one assistant reply (opt-in, judged by
