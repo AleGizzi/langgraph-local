@@ -676,6 +676,72 @@ def chat():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# ---------------- agents dashboard ----------------
+
+@app.get("/api/dashboard")
+def dashboard():
+    """Usage overview for the Agents page: recent team runs, recent chats, and
+    which personas have actually been used (derived from real data — a chat
+    counts a persona when its saved agent name matches, a run counts its team's
+    agents that match a persona name)."""
+    teams = storage.list_teams()
+    personas = storage.list_personas()
+    runs = storage.list_runs(limit=100)
+    chats = storage.list_chats(limit=200)
+
+    pmap = {p["name"].lower(): p for p in personas}
+    usage = {p["name"]: {"name": p["name"], "icon": p.get("icon", "🧑"),
+                         "role": p.get("role", ""), "id": p["id"],
+                         "chats": 0, "team_uses": 0} for p in personas}
+
+    for c in chats:
+        nm = (c.get("agent") or {}).get("name", "")
+        if nm and nm.lower() in pmap:
+            usage[pmap[nm.lower()]["name"]]["chats"] += 1
+    # team runs credit each agent in the team whose name matches a persona
+    team_by_id = {t["id"]: t for t in teams}
+    runs_per_team = {}
+    for r in runs:
+        runs_per_team[r["team_id"]] = runs_per_team.get(r["team_id"], 0) + 1
+    for tid, n in runs_per_team.items():
+        t = team_by_id.get(tid)
+        if not t:
+            continue
+        for ag in t.get("agents", []):
+            key = (ag.get("name") or "").lower()
+            if key in pmap:
+                usage[pmap[key]["name"]]["team_uses"] += n
+
+    persona_usage = sorted(usage.values(),
+                           key=lambda u: -(u["chats"] + u["team_uses"]))
+
+    team_usage = sorted(
+        [{"id": t["id"], "name": t["name"], "icon": t.get("icon", "🤖"),
+          "runs": runs_per_team.get(t["id"], 0)} for t in teams],
+        key=lambda t: -t["runs"])
+
+    def _run_brief(r):
+        return {"id": r["id"], "team_id": r["team_id"],
+                "team_name": r["team_name"], "task": (r["task"] or "")[:120],
+                "status": r["status"], "created_at": r["created_at"]}
+
+    def _chat_brief(c):
+        return {"id": c["id"], "title": c["title"],
+                "agent": (c.get("agent") or {}).get("name", ""),
+                "model": (c.get("agent") or {}).get("model", ""),
+                "messages": c.get("message_count", 0),
+                "updated_at": c["updated_at"]}
+
+    return jsonify({
+        "totals": {"teams": len(teams), "personas": len(personas),
+                   "runs": len(runs), "chats": len(chats)},
+        "recent_runs": [_run_brief(r) for r in runs[:8]],
+        "recent_chats": [_chat_brief(c) for c in chats[:8]],
+        "persona_usage": persona_usage[:12],
+        "team_usage": team_usage[:8],
+    })
+
+
 # ---------------- video maker ----------------
 
 @app.post("/api/video/plan")

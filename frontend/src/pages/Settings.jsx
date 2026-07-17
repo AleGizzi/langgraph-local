@@ -4,6 +4,7 @@ import CatalogTable from "../components/CatalogTable.jsx";
 import ImageModels from "../components/ImageModels.jsx";
 import FreeMemory from "../components/FreeMemory.jsx";
 import ModelCard from "../components/ModelCard.jsx";
+import Tabs, { useTab } from "../components/Tabs.jsx";
 
 function AssessTable({ rows, showInstalled, onPick }) {
   return (
@@ -39,6 +40,7 @@ function AssessTable({ rows, showInstalled, onPick }) {
 export default function Settings() {
   const [sys, setSys] = useState(null);
   const [card, setCard] = useState(null);
+  const [tab, setTab] = useTab("settings", "hardware");
   useEffect(() => { api("/system").then(setSys).catch(() => {}); }, []);
   if (!sys) return <p className="page-sub">Assessing your hardware…</p>;
   const hw = sys.hardware;
@@ -52,6 +54,14 @@ export default function Settings() {
         </div>
       </div>
 
+      <Tabs active={tab} onChange={setTab} tabs={[
+        { key: "hardware", label: "🖥️ Hardware" },
+        { key: "installed", label: "✅ Installed", badge: a.installed.length },
+        { key: "recommend", label: "🏆 Recommendations" },
+        { key: "image", label: "🎨 Image models" },
+      ]} />
+
+      {tab === "hardware" && <>
       <div className="card section-card">
         <h2>🖥️ This machine</h2>
         <div className="spec-grid" style={{ marginTop: 10 }}>
@@ -87,15 +97,19 @@ export default function Settings() {
       </div>
 
       <FreeMemory />
+      </>}
 
+      {tab === "installed" && (
       <div className="card section-card">
         <h2>✅ Your installed models</h2>
         <div className="sub">Assessment of every chat model currently available in Ollama.</div>
         {a.installed.length
           ? <AssessTable rows={a.installed} onPick={setCard} />
-          : <p className="page-sub">No models installed yet — see the catalog below and the Setup page.</p>}
+          : <p className="page-sub">No models installed yet — see the Recommendations tab and the Setup page.</p>}
       </div>
+      )}
 
+      {tab === "recommend" && <>
       <div className="card section-card">
         <h2>🏆 Suggested dream team for this PC</h2>
         <div className="sub">
@@ -115,8 +129,9 @@ export default function Settings() {
         </div>
         <CatalogTable />
       </div>
+      </>}
 
-      <ImageModels />
+      {tab === "image" && <ImageModels />}
       {card && <ModelCard name={card} onClose={() => setCard(null)} />}
     </>
   );

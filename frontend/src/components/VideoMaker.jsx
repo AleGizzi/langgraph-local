@@ -5,8 +5,8 @@ import { api, toast } from "../lib/api.js";
  * assembles Ken Burns pan/zoom + crossfades into an mp4. Honest framing: this
  * is the pipeline a 4GB GPU can actually do — animated slideshows from
  * generated stills, not frame-by-frame video diffusion. */
-export default function VideoMaker() {
-  const [open, setOpen] = useState(false);
+export default function VideoMaker({ startOpen = false }) {
+  const [open, setOpen] = useState(startOpen);
   const [idea, setIdea] = useState("");
   const [nShots, setNShots] = useState(5);
   const [planning, setPlanning] = useState(false);

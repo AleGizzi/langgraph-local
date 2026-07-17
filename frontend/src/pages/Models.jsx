@@ -4,15 +4,18 @@ import CatalogTable from "../components/CatalogTable.jsx";
 import ImageGen from "../components/ImageGen.jsx";
 import VideoMaker from "../components/VideoMaker.jsx";
 import ModelCard from "../components/ModelCard.jsx";
+import Tabs, { useTab } from "../components/Tabs.jsx";
 
 export default function Models() {
   const { models, health } = useApp();
   const [card, setCard] = useState(null);
+  const [tab, setTab] = useTab("models", "text");
   if (!health) return null;
   const groups = [
     ["ollama", "Ollama", health.providers.ollama],
     ["lmstudio", "LM Studio", health.providers.lmstudio],
   ];
+  const nText = (models.ollama || []).length + (models.lmstudio || []).length;
   return (
     <>
       <div className="page-head">
@@ -24,6 +27,14 @@ export default function Models() {
         </div>
         <a className="btn" href="#/settings">⚙️ Which models fit my PC?</a>
       </div>
+
+      <Tabs active={tab} onChange={setTab} tabs={[
+        { key: "text", label: "🧠 Text models", badge: nText },
+        { key: "image", label: "🎨 Image generation" },
+        { key: "video", label: "🎬 Video" },
+      ]} />
+
+      {tab === "text" && <>
       {groups.map(([key, label, st]) => (
         <div key={key} className="model-group card" style={{ padding: 16 }}>
           <h3>
@@ -47,10 +58,6 @@ export default function Models() {
           </div>
         </div>
       ))}
-      {card && (
-        <ModelCard name={card.name} provider={card.provider}
-          onClose={() => setCard(null)} />
-      )}
       <div className="card section-card" style={{ marginTop: 16 }}>
         <h2>⬇ Get more models</h2>
         <div className="sub">
@@ -59,8 +66,15 @@ export default function Models() {
         </div>
         <CatalogTable compact />
       </div>
-      <ImageGen />
-      <VideoMaker />
+      </>}
+
+      {tab === "image" && <ImageGen />}
+      {tab === "video" && <VideoMaker startOpen />}
+
+      {card && (
+        <ModelCard name={card.name} provider={card.provider}
+          onClose={() => setCard(null)} />
+      )}
     </>
   );
 }

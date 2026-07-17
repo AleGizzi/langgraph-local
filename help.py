@@ -18,19 +18,22 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
 (Ollama / LM Studio). Nothing leaves the machine.
 
 ## Pages (left sidebar)
-- **Studio** (#/teams): your agent teams. Create manually or click "🪄 Describe
-  a team" to have a local model draft the whole team from a sentence. Open a
-  team to give it a task and watch it work. Buttons on a team: 🎨 Canvas
-  (visual pipeline editor), 👾 Pixel (Game-Boy-style animated view), ✏️ Edit.
+- **Agents** (#/agents): one page with three tabs. **Dashboard** (default) shows
+  usage — totals, which personas you've used most (chats + team runs), recent
+  runs and chats. **Teams** tab = your agent teams (formerly "Studio"): create
+  manually or "🪄 Describe a team" to have a local model draft one from a
+  sentence; open a team to give it a task. Team buttons: 🎨 Canvas (visual
+  pipeline editor), 👾 Pixel (Game-Boy-style animated view), ✏️ Edit.
+  **Personas** tab = reusable agent definitions with Pokédex-style cards.
 - **Chat** (#/chat): talk to one model directly, with the same settings as a
   persona (prompt, hyperparameters, tools, skills). Left sidebar keeps chat
-  history. You can start a chat as a persona from the Personas page.
+  history. You can start a chat as a persona from the Agents → Personas tab.
 - **Runs** (#/runs): history of every team execution. Open one to replay the
   timeline, read the final deliverable, download files (📦 artifacts, .zip).
 - **Knowledge** (#/knowledge): a Markdown vault. Team deliverables are archived
   here automatically. Agents with the `knowledge` tool can search/read/write it.
   The folder is a normal Obsidian/Logseq vault (data/knowledge).
-- **Personas** (#/personas): reusable agent definitions. Each has a Pokédex-style
+- **(Personas live in the Agents page's Personas tab)**: Each has a Pokédex-style
   card with a creature sprite (species = model family, evolution = model size),
   stats, tools and abilities. 💬 buttons start a chat as that persona.
   "🪄 Describe an agent" drafts a persona from a description.

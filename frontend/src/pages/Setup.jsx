@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, toast } from "../lib/api.js";
+import Tabs, { useTab } from "../components/Tabs.jsx";
 
 function InstallWizard({ provider, info, docker, onInstalled }) {
   const [st, setSt] = useState(null);
@@ -141,6 +142,7 @@ function Guide({ guide }) {
 
 export default function Setup() {
   const [sys, setSys] = useState(null);
+  const [tab, setTab] = useTab("setup", "ollama");
   const load = () => api("/system").then(setSys).catch(() => {});
   useEffect(() => { load(); }, []);
   if (!sys) return <p className="page-sub">Inspecting your system…</p>;
@@ -162,12 +164,12 @@ export default function Setup() {
         </div>
         <a className="btn" href="#/settings">⚙️ Model recommendations</a>
       </div>
-      {sections.map(([key, info, guide, blurb]) => (
+      <Tabs
+        tabs={sections.map(([key, info]) => ({
+          key, label: <><span className={"dot " + (info.running ? "up" : "down")} /> {info.name}</> }))}
+        active={tab} onChange={setTab} />
+      {sections.filter(([key]) => key === tab).map(([key, info, guide, blurb]) => (
         <div key={key} className="card section-card">
-          <h2>
-            <span className={"dot " + (info.running ? "up" : "down")} />
-            {info.name}
-          </h2>
           <div className="sub">{blurb} · <a href={guide.site} target="_blank" rel="noopener noreferrer">{guide.site}</a></div>
           <h3 style={{ fontSize: 13, margin: "10px 0 6px" }}>On this machine</h3>
           <InstallInfo info={info} />

@@ -3,7 +3,7 @@ import { api, toast } from "../lib/api.js";
 import TeamEditor from "../components/TeamEditor.jsx";
 import ViewToggle, { useViewMode } from "../components/ViewToggle.jsx";
 
-export default function Teams() {
+export default function Teams({ embedded = false }) {
   const [teams, setTeams] = useState(null);
   const [editing, setEditing] = useState(undefined); // undefined=closed, null=new, obj=edit
   const [wizMode, setWizMode] = useState(false);
@@ -30,9 +30,9 @@ export default function Teams() {
 
   return (
     <>
-      <div className="page-head">
+      <div className="page-head" style={embedded ? { marginBottom: 14 } : undefined}>
         <div>
-          <h1 className="page-title">Studio</h1>
+          {!embedded && <h1 className="page-title">Studio</h1>}
           <p className="page-sub">Agent teams that run on your local models</p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

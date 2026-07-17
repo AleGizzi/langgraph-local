@@ -9,7 +9,8 @@ import PixelSprite from "./PixelSprite.jsx";
  * sessionStorage so it survives navigation but not a new session. */
 
 const PAGE_HINTS = {
-  teams: "the Studio (teams) page",
+  agents: "the Agents page (dashboard, teams, personas)",
+  teams: "the Agents page — Teams tab",
   team: "a team's page",
   flow: "the visual pipeline canvas",
   pixel: "the pixel studio",
@@ -17,7 +18,7 @@ const PAGE_HINTS = {
   runs: "the Runs history",
   run: "a run's detail page",
   knowledge: "the Knowledge vault",
-  personas: "the Personas page",
+  personas: "the Agents page — Personas tab",
   toolbox: "the Skills & Tools page",
   models: "the Models page",
   setup: "the Setup page",

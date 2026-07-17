@@ -1,11 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { api } from "./lib/api.js";
-import Teams from "./pages/Teams.jsx";
+import Agents from "./pages/Agents.jsx";
 import TeamPage from "./pages/TeamPage.jsx";
 import Runs from "./pages/Runs.jsx";
 import RunDetail from "./pages/RunDetail.jsx";
 import Models from "./pages/Models.jsx";
-import Personas from "./pages/Personas.jsx";
 import Setup from "./pages/Setup.jsx";
 import Settings from "./pages/Settings.jsx";
 import Toolbox from "./pages/Toolbox.jsx";
@@ -20,22 +19,21 @@ export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
 
 function useHashRoute() {
-  const [hash, setHash] = useState(location.hash || "#/teams");
+  const [hash, setHash] = useState(location.hash || "#/agents");
   useEffect(() => {
-    const fn = () => setHash(location.hash || "#/teams");
+    const fn = () => setHash(location.hash || "#/agents");
     window.addEventListener("hashchange", fn);
     return () => window.removeEventListener("hashchange", fn);
   }, []);
-  const [, page = "teams", id] = hash.split("/");
+  const [, page = "agents", id] = hash.split("/");
   return { page, id: id ? decodeURIComponent(id) : null };
 }
 
 const NAV = [
-  ["teams", "🎛️", "Studio"],
+  ["agents", "🎭", "Agents"],
   ["chat", "💬", "Chat"],
   ["runs", "🗂️", "Runs"],
   ["knowledge", "📚", "Knowledge"],
-  ["personas", "🎭", "Personas"],
   ["toolbox", "🧰", "Skills & Tools"],
   ["models", "🧠", "Models"],
   ["setup", "📦", "Setup"],
@@ -98,7 +96,8 @@ export default function App() {
     };
   }, []);
 
-  const active = ["team", "flow", "pixel"].includes(route.page) ? "teams" : route.page === "run" ? "runs" : route.page;
+  const active = ["team", "flow", "pixel", "teams", "personas"].includes(route.page)
+    ? "agents" : route.page === "run" ? "runs" : route.page;
 
   // Full-viewport pages without the normal page wrapper.
   if (route.page === "flow" && route.id) {
@@ -119,18 +118,20 @@ export default function App() {
   }
 
   let view = null;
-  if (route.page === "teams") view = <Teams />;
+  if (route.page === "agents") view = <Agents subtab={route.id} />;
+  // legacy deep links → the Agents page's tabs
+  else if (route.page === "teams") view = <Agents subtab="teams" />;
+  else if (route.page === "personas") view = <Agents subtab="personas" />;
   else if (route.page === "team" && route.id) view = <TeamPage teamId={+route.id} key={route.id} />;
   else if (route.page === "runs") view = <Runs />;
   else if (route.page === "run" && route.id) view = <RunDetail runId={+route.id} key={route.id} />;
   else if (route.page === "models") view = <Models />;
-  else if (route.page === "personas") view = <Personas />;
   else if (route.page === "setup") view = <Setup />;
   else if (route.page === "settings") view = <Settings />;
   else if (route.page === "toolbox") view = <Toolbox />;
   else if (route.page === "chat") view = <Chat personaId={route.id ? +route.id : null} key={route.id || "chat"} />;
   else if (route.page === "knowledge") view = <Knowledge />;
-  else view = <Teams />;
+  else view = <Agents />;
 
   return (
     <AppCtx.Provider value={{ models, tools, skills, paramSpecs, health, reloadCatalogs, theme }}>
@@ -161,12 +162,14 @@ export default function App() {
               </div>
             ))}
             <button
-              className="btn ghost theme-toggle"
+              className={"theme-switch" + (theme === "dark" ? " on" : "")}
+              role="switch" aria-checked={theme === "dark"}
               title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             >
-              {theme === "dark" ? "☀️" : "🌙"}
-              <span className="txt">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+              <span className="theme-switch-label">☀️</span>
+              <span className="theme-switch-track"><span className="theme-switch-knob" /></span>
+              <span className="theme-switch-label">🌙</span>
             </button>
           </div>
         </aside>

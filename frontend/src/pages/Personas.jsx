@@ -222,7 +222,7 @@ function PersonaEditor({ persona, wizard, onClose, onSaved }) {
 
 /* ---------- page ---------- */
 
-export default function Personas() {
+export default function Personas({ embedded = false }) {
   const [personas, setPersonas] = useState(null);
   const [editing, setEditing] = useState(undefined);
   const [wizMode, setWizMode] = useState(false);
@@ -243,9 +243,9 @@ export default function Personas() {
   if (!personas) return null;
   return (
     <>
-      <div className="page-head">
+      <div className="page-head" style={embedded ? { marginBottom: 14 } : undefined}>
         <div>
-          <h1 className="page-title">Personas</h1>
+          {!embedded && <h1 className="page-title">Personas</h1>}
           <p className="page-sub">
             Your roster of reusable agents — click one to open its card, generate
             its creature sprite, or edit its settings
