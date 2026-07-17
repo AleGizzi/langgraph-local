@@ -16,6 +16,7 @@ everything — that's the point of this structure.
 | Personas | [`features/personas/`](features/personas/README.md) | personas CRUD, `Personas.jsx`, `AgentFields.jsx` |
 | Skills, tools, AI wizards | [`features/skills-tools/`](features/skills-tools/README.md) | `tools.py`, `wizard.py`, `Toolbox.jsx`, `WizardPanel.jsx` |
 | Knowledge vault (Obsidian) | [`features/knowledge/`](features/knowledge/README.md) | `knowledge.py`, `Knowledge.jsx`, knowledge tools |
+| Scheduled agent tasks (cron) | [`features/schedules/`](features/schedules/README.md) | `scheduler.py`, `schedules` tables, `Schedules.jsx` |
 | Model catalog, installs, hardware assessment, provider setup | [`features/models-catalog/`](features/models-catalog/README.md) | `catalog.py`, `sysinfo.py`, `installer.py`, Models/Settings/Setup pages |
 | Image generation (Fooocus) | [`features/image-generation/`](features/image-generation/README.md) | `imagegen.py`, `ImageGen.jsx` |
 

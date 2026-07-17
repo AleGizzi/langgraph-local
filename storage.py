@@ -95,6 +95,29 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    agent TEXT NOT NULL DEFAULT '{}',
+    interval_seconds INTEGER NOT NULL DEFAULT 86400,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    track_number INTEGER NOT NULL DEFAULT 0,
+    knowledge_folder TEXT,
+    last_run REAL,
+    last_result TEXT,
+    next_run REAL,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS schedule_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_id INTEGER NOT NULL,
+    ran_at REAL NOT NULL,
+    ok INTEGER NOT NULL,
+    result TEXT,
+    value REAL
+);
+CREATE INDEX IF NOT EXISTS idx_sched_runs ON schedule_runs(schedule_id, ran_at);
 """
 
 
@@ -117,6 +140,86 @@ def set_meta(key: str, value):
         c.execute("INSERT INTO meta (key, value) VALUES (?,?) "
                   "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                   (key, json.dumps(value)))
+
+
+# ---------------- schedules ----------------
+
+def _schedule_row(r) -> dict:
+    return {"id": r["id"], "name": r["name"], "prompt": r["prompt"],
+            "agent": json.loads(r["agent"] or "{}"),
+            "interval_seconds": r["interval_seconds"], "enabled": bool(r["enabled"]),
+            "track_number": bool(r["track_number"]),
+            "knowledge_folder": r["knowledge_folder"],
+            "last_run": r["last_run"], "last_result": r["last_result"],
+            "next_run": r["next_run"], "created_at": r["created_at"]}
+
+
+def list_schedules() -> list:
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM schedules ORDER BY id DESC").fetchall()
+    return [_schedule_row(r) for r in rows]
+
+
+def get_schedule(sid: int):
+    with _conn() as c:
+        r = c.execute("SELECT * FROM schedules WHERE id=?", (sid,)).fetchone()
+    return _schedule_row(r) if r else None
+
+
+def create_schedule(d: dict) -> dict:
+    now = time.time()
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO schedules (name, prompt, agent, interval_seconds, enabled,"
+            " track_number, knowledge_folder, next_run, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (d.get("name", "Scheduled task"), d.get("prompt", ""),
+             json.dumps(d.get("agent", {})), int(d.get("interval_seconds", 86400)),
+             int(bool(d.get("enabled", True))), int(bool(d.get("track_number", False))),
+             d.get("knowledge_folder"), now, now))
+        sid = cur.lastrowid
+    return get_schedule(sid)
+
+
+def update_schedule(sid: int, d: dict):
+    cur = get_schedule(sid)
+    if not cur:
+        return None
+    m = {**cur, **d}
+    with _conn() as c:
+        c.execute(
+            "UPDATE schedules SET name=?, prompt=?, agent=?, interval_seconds=?,"
+            " enabled=?, track_number=?, knowledge_folder=?, last_run=?,"
+            " last_result=?, next_run=? WHERE id=?",
+            (m["name"], m["prompt"], json.dumps(m["agent"]), int(m["interval_seconds"]),
+             int(bool(m["enabled"])), int(bool(m["track_number"])),
+             m.get("knowledge_folder"), m.get("last_run"), m.get("last_result"),
+             m.get("next_run"), sid))
+    return get_schedule(sid)
+
+
+def delete_schedule(sid: int):
+    with _conn() as c:
+        c.execute("DELETE FROM schedule_runs WHERE schedule_id=?", (sid,))
+        c.execute("DELETE FROM schedules WHERE id=?", (sid,))
+
+
+def add_schedule_run(sid: int, ok: bool, result: str, value=None) -> int:
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO schedule_runs (schedule_id, ran_at, ok, result, value)"
+            " VALUES (?,?,?,?,?)",
+            (sid, time.time(), int(bool(ok)), (result or "")[:8000], value))
+        return cur.lastrowid
+
+
+def list_schedule_runs(sid: int, limit: int = 200) -> list:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM schedule_runs WHERE schedule_id=? ORDER BY ran_at ASC"
+            " LIMIT ?", (sid, limit)).fetchall()
+    return [{"id": r["id"], "ran_at": r["ran_at"], "ok": bool(r["ok"]),
+             "result": r["result"], "value": r["value"]} for r in rows]
 
 
 def init_db():

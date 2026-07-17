@@ -41,6 +41,10 @@ if not os.environ.get("AGENTS_SKIP_STARTUP"):
     import imgqueue as _imgqueue  # noqa: E402
     _imgqueue.start()
 
+    # Background scheduler for unattended agent tasks (cron for local agents).
+    import scheduler as _scheduler  # noqa: E402
+    _scheduler.start()
+
 # Used by the SPA to detect that the server (and likely the bundle) changed
 # under an open tab, and offer a reload instead of running stale code.
 # (time imported at top)
@@ -674,6 +678,54 @@ def chat():
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------- scheduled tasks ----------------
+
+@app.get("/api/schedules")
+def schedules_list():
+    out = []
+    for s in storage.list_schedules():
+        s = dict(s)
+        s["runs"] = storage.list_schedule_runs(s["id"], limit=200)
+        out.append(s)
+    return jsonify({"schedules": out})
+
+
+@app.post("/api/schedules")
+def schedules_create():
+    body = request.get_json(force=True) or {}
+    if not (body.get("prompt") or "").strip():
+        abort(400, "prompt is required")
+    if not (body.get("agent") or {}).get("model"):
+        abort(400, "an agent with a model is required")
+    return jsonify(storage.create_schedule(body))
+
+
+@app.put("/api/schedules/<int:sid>")
+def schedules_update(sid):
+    body = request.get_json(force=True) or {}
+    r = storage.update_schedule(sid, body)
+    if not r:
+        abort(404)
+    return jsonify(r)
+
+
+@app.delete("/api/schedules/<int:sid>")
+def schedules_delete(sid):
+    storage.delete_schedule(sid)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/schedules/<int:sid>/run")
+def schedules_run_now(sid):
+    """Run a schedule immediately in a background thread (returns at once)."""
+    import scheduler
+    import threading
+    if not storage.get_schedule(sid):
+        abort(404)
+    threading.Thread(target=scheduler.run_schedule, args=(sid,), daemon=True).start()
+    return jsonify({"ok": True})
 
 
 # ---------------- agents dashboard ----------------

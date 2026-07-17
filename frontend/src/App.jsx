@@ -11,6 +11,7 @@ import Toolbox from "./pages/Toolbox.jsx";
 import FlowEditor from "./pages/FlowEditor.jsx";
 import Chat from "./pages/Chat.jsx";
 import Knowledge from "./pages/Knowledge.jsx";
+import Schedules from "./pages/Schedules.jsx";
 import PixelStudio from "./pages/PixelStudio.jsx";
 import HelpAssistant from "./components/HelpAssistant.jsx";
 import PixelSprite from "./components/PixelSprite.jsx";
@@ -33,6 +34,7 @@ const NAV = [
   ["agents", "🎭", "Agents"],
   ["chat", "💬", "Chat"],
   ["runs", "🗂️", "Runs"],
+  ["schedules", "⏰", "Schedules"],
   ["knowledge", "📚", "Knowledge"],
   ["toolbox", "🧰", "Skills & Tools"],
   ["models", "🧠", "Models"],
@@ -135,6 +137,7 @@ export default function App() {
   else if (route.page === "toolbox") view = <Toolbox />;
   else if (route.page === "chat") view = <Chat personaId={route.id ? +route.id : null} key={route.id || "chat"} />;
   else if (route.page === "knowledge") view = <Knowledge />;
+  else if (route.page === "schedules") view = <Schedules />;
   else view = <Agents />;
 
   return (

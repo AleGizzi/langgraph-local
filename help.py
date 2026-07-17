@@ -28,6 +28,11 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
 - **Chat** (#/chat): talk to one model directly, with the same settings as a
   persona (prompt, hyperparameters, tools, skills). Left sidebar keeps chat
   history. You can start a chat as a persona from the Agents → Personas tab.
+- **Schedules** (#/schedules): run an agent unattended on an interval (daily
+  web check, tracked metric, recurring research). Optionally track a number
+  from each result and chart its evolution, or save findings to a knowledge
+  folder. Runs only while the app is on (keep it running / use the systemd
+  service or desktop app for 24/7).
 - **Runs** (#/runs): history of every team execution. Open one to replay the
   timeline, read the final deliverable, download files (📦 artifacts, .zip).
 - **Knowledge** (#/knowledge): a Markdown vault. Team deliverables are archived
