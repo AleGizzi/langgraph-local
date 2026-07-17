@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#155eef"/>
+      <stop offset="1" stop-color="#6938ef"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#g)"/>
+  <!-- 8-bit "crab" invader, 11x8 grid centered, cell = 18px -->
+  <g fill="#ffffff" transform="translate(29,56)">
+    <!-- row 0: ..X.....X.. -->
+    <rect x="36" y="0" width="18" height="18"/><rect x="144" y="0" width="18" height="18"/>
+    <!-- row 1: ...X...X... -->
+    <rect x="54" y="18" width="18" height="18"/><rect x="126" y="18" width="18" height="18"/>
+    <!-- row 2: ..XXXXXXX.. -->
+    <rect x="36" y="36" width="126" height="18"/>
+    <!-- row 3: .XX.XXX.XX. -->
+    <rect x="18" y="54" width="36" height="18"/><rect x="72" y="54" width="54" height="18"/><rect x="144" y="54" width="36" height="18"/>
+    <!-- row 4: XXXXXXXXXXX -->
+    <rect x="0" y="72" width="198" height="18"/>
+    <!-- row 5: X.XXXXXXX.X -->
+    <rect x="0" y="90" width="18" height="18"/><rect x="36" y="90" width="126" height="18"/><rect x="180" y="90" width="18" height="18"/>
+    <!-- row 6: X.X.....X.X -->
+    <rect x="0" y="108" width="18" height="18"/><rect x="36" y="108" width="18" height="18"/><rect x="144" y="108" width="18" height="18"/><rect x="180" y="108" width="18" height="18"/>
+    <!-- row 7: ...XX.XX... -->
+    <rect x="54" y="126" width="36" height="18"/><rect x="108" y="126" width="36" height="18"/>
+  </g>
+</svg>

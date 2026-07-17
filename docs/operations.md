@@ -69,6 +69,34 @@ journalctl --user -u local-agents-studio -f  # Follow logs
 
 The service runs with `PORT=5860` and restarts automatically on failure (with 3-second delay between attempts).
 
+### Desktop App (Pop!_OS / GNOME)
+
+Install Agent Studio as a launcher entry so it opens like any other app:
+
+```bash
+./deploy/install-desktop-app.sh
+```
+
+This copies `deploy/agent-studio.svg` to `~/.local/share/icons/` and writes
+`~/.local/share/applications/agent-studio.desktop` (no root needed). "Agent
+Studio" then appears in the app launcher / dock. Clicking it runs
+`deploy/agent-studio-launch.sh`, which starts the server via `run.sh` if it
+isn't already answering `/api/health`, waits for it, then opens a dedicated
+app window.
+
+Browser used for the window, in order of preference:
+1. A Chromium-family browser (`google-chrome`, `chromium`, `brave`, `edge`) in
+   `--app=<url>` mode — a chromeless site-specific window, the most app-like.
+2. This project's **Playwright Chromium** (`~/.cache/ms-playwright/chromium-*`),
+   also in `--app` mode — so it works even with only Firefox installed
+   system-wide (Playwright is a dev dependency here).
+3. Firefox with a dedicated profile window.
+4. `xdg-open` — the default browser in a normal tab (last resort).
+
+The app-mode window uses its own profile at `~/.config/agent-studio-app`, so it
+stays signed-in/independent of your main browser. `StartupWMClass=AgentStudio`
+lets the shell match the window to the launcher icon.
+
 ## Running with Docker
 
 Docker is the recommended way to run on Windows, macOS, or to avoid Python/Node dependency management. The bundled Ollama service means you don't need to install it separately.
