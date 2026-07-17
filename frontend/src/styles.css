@@ -566,6 +566,42 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
   background: var(--accent); border-color: var(--accent); color: #fff;
   border-bottom-right-radius: 4px;
 }
+/* Knowledge: sub-vault folders + graph view */
+.kb-folder-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 10px 3px; position: sticky; top: 0; background: var(--surface);
+  border-bottom: 1px solid var(--border); z-index: 1;
+}
+.kb-folder-name {
+  font-size: 12px; font-weight: 600; color: var(--text-2); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; user-select: none;
+}
+.kb-folder-name em { color: var(--text-3); font-style: normal; font-weight: 400; }
+.kb-folder-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.kb-folder-head .icon-btn { opacity: 0; transition: opacity .15s; }
+.kb-folder-head:hover .icon-btn { opacity: .8; }
+.kb-item-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.kb-item-del { opacity: 0; flex-shrink: 0; }
+.kb-item:hover .kb-item-del { opacity: .7; }
+.kb-move {
+  font-size: 11.5px; padding: 3px 4px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface); color: var(--text-2); max-width: 120px;
+}
+.kb-graph {
+  position: relative; height: calc(100vh - 240px); min-height: 420px;
+  display: flex; overflow: hidden;
+}
+.kb-graph-legend {
+  position: absolute; left: 10px; bottom: 8px; display: flex; gap: 12px;
+  flex-wrap: wrap; font-size: 11px; color: var(--text-3);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  padding: 4px 8px; border-radius: 6px;
+}
+.kb-graph-legend i {
+  width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px;
+}
+.kb-graph-legend span { display: inline-flex; align-items: center; }
+
 /* Fooocus standalone UI strip */
 .fooocus-ui-strip {
   display: flex; gap: 10px; align-items: center; justify-content: space-between;

@@ -139,9 +139,13 @@ def list_notes() -> list:
                 continue
             tm = re.search(r"^title:\s*(.+)$", head, re.M)
             tagm = re.search(r"^tags:\s*\[(.*)\]", head, re.M)
+            title = tm.group(1).strip() if tm else fn[:-3]
+            if len(title) > 1 and title[0] == '"' and title[-1] == '"':
+                # _yaml_str quotes multiword titles; the UI wants them bare.
+                title = title[1:-1].replace('\\"', '"').replace("\\\\", "\\")
             out.append({
                 "path": rel,
-                "title": tm.group(1).strip() if tm else fn[:-3],
+                "title": title,
                 "tags": [t.strip() for t in tagm.group(1).split(",") if t.strip()] if tagm else [],
                 "size": st.st_size, "modified": st.st_mtime,
             })
@@ -153,6 +157,142 @@ def read_note(rel: str, strip_meta: bool = False) -> str:
     with open(_safe_path(rel), encoding="utf-8") as f:
         text = f.read()
     return _strip_frontmatter(text) if strip_meta else text
+
+
+# ---------------- vault structure: folders, delete, move, graph ----------------
+
+def _safe_dir(rel: str) -> str:
+    """Resolve a vault-relative FOLDER, refusing escapes and the vault root
+    itself (deleting the root would destroy the whole brain in one call)."""
+    rel = (rel or "").strip().strip("/")
+    if not rel:
+        raise ValueError("a folder inside the vault is required")
+    full = os.path.realpath(os.path.join(KNOWLEDGE_DIR, rel))
+    root = os.path.realpath(KNOWLEDGE_DIR)
+    if not full.startswith(root + os.sep):
+        raise ValueError("path escapes the knowledge vault")
+    return full
+
+
+def _prune_empty_dirs(start: str):
+    """Remove now-empty folders upward, stopping at the vault root."""
+    root = os.path.realpath(KNOWLEDGE_DIR)
+    cur = os.path.realpath(start)
+    while cur != root and cur.startswith(root + os.sep):
+        try:
+            os.rmdir(cur)  # only succeeds when empty
+        except OSError:
+            break
+        cur = os.path.dirname(cur)
+
+
+def delete_note(rel: str) -> dict:
+    path = _safe_path(rel)
+    if not os.path.isfile(path):
+        return {"ok": False, "error": f"{rel} does not exist"}
+    os.remove(path)
+    _prune_empty_dirs(os.path.dirname(path))
+    return {"ok": True, "error": None}
+
+
+def delete_folder(rel: str) -> dict:
+    """Delete a sub-vault (folder) and every note inside it."""
+    import shutil
+    try:
+        full = _safe_dir(rel)
+    except ValueError as e:
+        return {"ok": False, "deleted": 0, "error": str(e)}
+    if not os.path.isdir(full):
+        return {"ok": False, "deleted": 0, "error": f"{rel} is not a folder"}
+    count = sum(len([f for f in fs if f.endswith(".md")])
+                for _, _, fs in os.walk(full))
+    shutil.rmtree(full)
+    _prune_empty_dirs(os.path.dirname(full))
+    return {"ok": True, "deleted": count, "error": None}
+
+
+def move_note(rel: str, folder: str) -> dict:
+    """Move a note into a (possibly new) sub-vault. folder='' → vault root."""
+    src = _safe_path(rel)
+    if not os.path.isfile(src):
+        return {"ok": False, "path": None, "error": f"{rel} does not exist"}
+    folder = (folder or "").strip().strip("/")
+    if folder:
+        _safe_dir(folder)  # validate before creating anything
+        os.makedirs(os.path.join(KNOWLEDGE_DIR, folder), exist_ok=True)
+    dest = _unique_path(os.path.join(folder, os.path.basename(rel)))
+    os.rename(src, dest)
+    _prune_empty_dirs(os.path.dirname(src))
+    return {"ok": True, "path": os.path.relpath(dest, KNOWLEDGE_DIR), "error": None}
+
+
+def folders() -> list:
+    """Top-level sub-vaults with note counts (root-level notes count as '')."""
+    _ensure()
+    root = os.path.realpath(KNOWLEDGE_DIR)
+    counts = {}
+    for base, _dirs, files in os.walk(root):
+        n = len([f for f in files if f.endswith(".md")])
+        if not n:
+            continue
+        rel = os.path.relpath(base, root)
+        top = "" if rel == "." else rel.split(os.sep)[0]
+        counts[top] = counts.get(top, 0) + n
+    return [{"name": k, "notes": v} for k, v in sorted(counts.items())]
+
+
+_WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
+
+
+def _link_keys(title: str, path: str):
+    """The names a wikilink may use to refer to this note (Obsidian matches
+    the filename; people usually write the title)."""
+    stem = os.path.basename(path)[:-3]
+    undated = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", stem)
+    return {title.lower().strip(), stem.lower(), undated, _slug(title)}
+
+
+def graph() -> dict:
+    """Nodes and [[wikilink]] edges for the whole vault — Obsidian's graph
+    view, computed server-side. Unresolved links become 'ghost' nodes, exactly
+    like Obsidian renders them."""
+    notes = list_notes()
+    by_key = {}
+    nodes = []
+    for n in notes:
+        folder = os.path.dirname(n["path"])
+        top = folder.split(os.sep)[0] if folder else ""
+        nodes.append({"id": n["path"], "title": n["title"], "folder": top,
+                      "ghost": False})
+        for k in _link_keys(n["title"], n["path"]):
+            by_key.setdefault(k, n["path"])
+    edges, ghosts = [], {}
+    for n in notes:
+        try:
+            body = read_note(n["path"], strip_meta=True)
+        except (OSError, ValueError):
+            continue
+        for m in _WIKILINK_RE.finditer(body):
+            target = m.group(1).strip()
+            hit = by_key.get(target.lower()) or by_key.get(_slug(target))
+            if hit:
+                if hit != n["path"]:
+                    edges.append({"from": n["path"], "to": hit})
+            else:
+                gid = f"ghost:{_slug(target)}"
+                if gid not in ghosts:
+                    ghosts[gid] = {"id": gid, "title": target, "folder": "",
+                                   "ghost": True}
+                edges.append({"from": n["path"], "to": gid})
+    nodes.extend(ghosts.values())
+    # de-duplicate edges
+    seen, uniq = set(), []
+    for e in edges:
+        key = (e["from"], e["to"])
+        if key not in seen:
+            seen.add(key)
+            uniq.append(e)
+    return {"nodes": nodes, "edges": uniq}
 
 
 def search(query: str, limit: int = 20) -> list:

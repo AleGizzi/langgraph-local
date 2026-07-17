@@ -50,6 +50,14 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   runs Fooocus's native interface standalone on port 7865 with the same
   models. It and this app's image server can't run together (one GPU); LLM
   replies are slow while either holds the GPU.
+- **Knowledge vault structure**: notes live in SUB-VAULTS (folders) — group
+  related knowledge by topic. The Knowledge page groups notes by sub-vault;
+  each has a 🗑 that deletes the WHOLE topic at once (the "forget it" move),
+  and every note has its own 🗑 too. "Move to…" refiles a note. The 🕸️ Graph
+  button shows the Obsidian-style graph: notes as dots colored by sub-vault,
+  [[wikilinks]] as lines, faded dots = ghost notes (linked but never written).
+  Click a dot to open the note. Agents file notes into topic folders via the
+  knowledge tool; deleting is human-only, from this page.
 - **Skills & Tools** (#/toolbox): SKILLS are prompt directives that shape agent
   behavior; TOOLS are Python functions agents can call (builtin ones like
   calculator/http_get/web_search/read_webpage/run_python/files/knowledge/

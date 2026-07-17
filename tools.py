@@ -322,14 +322,19 @@ def knowledge_read(path: str) -> str:
 
 
 @tool
-def knowledge_write(title: str, content: str) -> str:
+def knowledge_write(title: str, content: str, folder: str = "notes") -> str:
     """Save a note to the shared knowledge base so future runs can reference it.
     Use for durable findings, decisions, or reference material worth keeping.
-    `content` is Markdown; use [[wikilinks]] to relate notes."""
+    `content` is Markdown; use [[wikilinks]] to relate notes.
+
+    `folder` groups related knowledge into a topic sub-vault (e.g. 'recipes',
+    'project-x/decisions') — file notes with their topic so a whole topic can
+    be reviewed or removed together. Defaults to 'notes'."""
     import knowledge
+    folder = re.sub(r"[^\w/ -]", "", folder or "notes").strip("/ ") or "notes"
     try:
         rel = knowledge.write_note(title, content, tags=["agent-note"],
-                                   meta_extra={"source": "agent"}, subdir="notes")
+                                   meta_extra={"source": "agent"}, subdir=folder)
         return f"Saved as {rel}"
     except Exception as e:  # noqa: BLE001
         return f"Error: {e}"

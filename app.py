@@ -524,9 +524,51 @@ def knowledge_note_create():
     content = body.get("content") or ""
     if not title or not content.strip():
         abort(400, "title and content are required")
+    folder = re.sub(r"[^\w/ -]", "", (body.get("folder") or "notes")).strip("/ ") or "notes"
     rel = knowledge.write_note(title, content, tags=["manual"],
-                               meta_extra={"source": "manual"}, subdir="notes")
+                               meta_extra={"source": "manual"}, subdir=folder)
     return jsonify({"path": rel})
+
+
+@app.delete("/api/knowledge/note")
+def knowledge_note_delete():
+    import knowledge
+    r = knowledge.delete_note(request.args.get("path", ""))
+    if not r["ok"]:
+        abort(404, r["error"])
+    return jsonify(r)
+
+
+@app.get("/api/knowledge/folders")
+def knowledge_folders():
+    import knowledge
+    return jsonify({"folders": knowledge.folders()})
+
+
+@app.delete("/api/knowledge/folder")
+def knowledge_folder_delete():
+    """Delete a whole sub-vault — the 'forget this topic' operation."""
+    import knowledge
+    r = knowledge.delete_folder(request.args.get("path", ""))
+    if not r["ok"]:
+        abort(400, r["error"])
+    return jsonify(r)
+
+
+@app.post("/api/knowledge/move")
+def knowledge_note_move():
+    import knowledge
+    body = request.get_json(force=True) or {}
+    r = knowledge.move_note(body.get("path", ""), body.get("folder", ""))
+    if not r["ok"]:
+        abort(400, r["error"])
+    return jsonify(r)
+
+
+@app.get("/api/knowledge/graph")
+def knowledge_graph():
+    import knowledge
+    return jsonify(knowledge.graph())
 
 
 # ---------------- chat ----------------

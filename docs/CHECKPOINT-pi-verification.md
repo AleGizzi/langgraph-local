@@ -1,4 +1,28 @@
-# CHECKPOINT — Pi/3D team verification (paused 2026-07-14)
+# CHECKPOINT — Pi/3D team verification (paused again 2026-07-16, LAST priority)
+
+**Run 62 (7B verifier):** fabrication guard fired in production — Verifier
+claimed "SMOKE TEST PASSED" over exit-1; the ⚠ NOT VERIFIED stamp landed.
+Real bug: `sleep()` used without import + a smoke test with ~30s of real
+sleeps.
+
+**Run 63 (qwen2.5-coder:14b verifier):** salvage recovered every text-emitted
+tool call (the 14B coder also prints calls as text). It iterated the full
+budget but OSCILLATED between two `pir = MotionSensor(4)` edit variants —
+undo/redo loop, never green. The wall is the Builder's smoke test trying to
+mock/instantiate the MotionSensor; the loop guard can't see it because the
+alternating arguments differ each call.
+
+**Next levers when resuming (in order):**
+1. Skill: forbid the smoke test from touching the SENSOR at all — "test the
+   actuator functions (fade_on/fade_off) directly; never instantiate or mock
+   MotionSensor in the test, the interactive loop is not the test's job".
+2. Loop-guard v2: detect A/B oscillation (same file, alternating old_text
+   pair) the way identical repeats are detected.
+3. The Verifier stays on qwen2.5-coder:14b (DB team 18 only; seeds stay 7B).
+
+---
+
+# Original checkpoint (2026-07-14)
 
 Paused mid-task on the user's request. This file is the resume point; delete it
 once the task is finished.

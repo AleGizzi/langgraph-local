@@ -695,6 +695,10 @@ SEED_SKILLS = [
         "the device state gpiozero exposes — led.is_lit, pwm.value, motor.value. The\n"
         "mock factory makes these real, checkable values. Example: call your\n"
         "blink_once(led) then assert led.is_lit is False afterwards.\n"
+        "The test MUST FINISH IN UNDER 10 SECONDS — it is killed at 30. Call your\n"
+        "functions with SHORT durations (fade_on(led, seconds=0.2), not 60) — which\n"
+        "means durations must be PARAMETERS, never hard-coded sleeps. Do not "
+        "monkeypatch gpiozero; the mock pin factory already simulates the hardware.\n"
         "The program is done when smoke_test.py exits 0 and prints SMOKE TEST PASSED."},
     {"name": "Compilable Arduino Sketch", "icon": "🔌",
      "description": "Contract for Arduino sketches that compile with the real AVR toolchain.",

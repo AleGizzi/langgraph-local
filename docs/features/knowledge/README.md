@@ -30,12 +30,26 @@ tool can search/read/write notes mid-run.
 - `GET /api/knowledge/note?path=<vault-relative path>` → `{path, content}`
   (raw Markdown, frontmatter included). 404 if the path doesn't exist or
   resolves outside the vault.
-- `POST /api/knowledge/note {title, content}` → `{path}` — both fields
-  required (non-empty after strip). Saved to
-  `notes/YYYY-MM-DD-<slugified-title>.md` with frontmatter `title`,
-  `created`, `tags: [manual]`, `source: manual`.
-
-There is **no update/delete API for notes** — see Gotchas.
+- `POST /api/knowledge/note {title, content, folder?}` → `{path}` — title and
+  content required. Saved to `<folder>/YYYY-MM-DD-<slugified-title>.md`
+  (folder defaults to `notes`, sanitized to word chars, `/`, space, dash)
+  with frontmatter `title`, `created`, `tags: [manual]`, `source: manual`.
+- `DELETE /api/knowledge/note?path=<rel>` → `{ok}` — removes the file and
+  prunes now-empty parent folders. 404 if missing/escaping.
+- `GET /api/knowledge/folders` → `{folders: [{name, notes}]}` — top-level
+  sub-vaults with note counts (`name: ""` = root-level notes).
+- `DELETE /api/knowledge/folder?path=<name>` → `{ok, deleted}` — removes a
+  whole sub-vault recursively: the **"forget this topic"** operation.
+  Refuses the vault root and any escaping path.
+- `POST /api/knowledge/move {path, folder}` → `{ok, path}` — files a note
+  into a (possibly new) sub-vault; `folder: ""` moves to root. Collisions get
+  the `-2` suffix treatment.
+- `GET /api/knowledge/graph` → `{nodes: [{id, title, folder, ghost}],
+  edges: [{from, to}]}` — the Obsidian-style graph. Edges come from
+  `[[wikilinks]]` in note bodies, resolved against titles, filename stems and
+  date-stripped stems (case-insensitive + slugged). Links to notes that don't
+  exist become `ghost: true` nodes with `id: "ghost:<slug>"`, exactly like
+  Obsidian's faded ghost nodes.
 
 ## How it works
 
@@ -78,10 +92,18 @@ There is **no update/delete API for notes** — see Gotchas.
 
 ## Gotchas
 
-- **No update/delete API.** Once written (manually via `POST
-  /api/knowledge/note`, or automatically by a run), a note can only be
-  edited by hand on disk — `Knowledge.jsx` has no edit or delete button, and
-  `app.py` exposes no `PUT`/`DELETE` for notes.
+- **Deletes are real disk deletes with no undo** — `DELETE /note` and
+  especially `DELETE /folder` remove Markdown files permanently. The UI
+  confirms with the note count, but there is no trash can. (Added 2026-07-16;
+  before that there was no delete at all.) There is still no in-app *edit* —
+  a note's content is changed by hand on disk or in Obsidian.
+- **Sub-vault = top-level folder, by convention.** `folders()` and the UI's
+  grouping/coloring only look at the FIRST path segment; `project-x/decisions`
+  nests fine on disk but groups and deletes as `project-x` in the UI.
+- **`knowledge_write`'s `folder` arg is agent-facing** — agents are told to
+  file notes by topic, so expect new sub-vaults to appear from runs. There is
+  deliberately no agent-facing delete: forgetting is a human decision made in
+  the UI.
 - **Search is a full linear scan**, re-reading every note's content on every
   query — fine for hundreds of notes, will get slow as the vault grows (this
   is a known, accepted gap, not an oversight).
