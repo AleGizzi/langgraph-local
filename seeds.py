@@ -14,6 +14,45 @@ def _agent(name, role, model, prompt, temperature=0.7, tools=None, provider="oll
 
 SEED_TEAMS = [
     {
+        "name": "Pair Builder",
+        "icon": "👯",
+        "description": "Two agents in a build loop: the Driver writes and runs the "
+                       "code, the Navigator reviews and sends it back with fixes until "
+                       "it's right. Point it at a new app to build, or at THIS app to "
+                       "improve. Files are real — review with `git diff` for app edits.",
+        "topology": "pipeline",
+        # quality_loop makes the last agent (Navigator) the reviewer: it either
+        # APPROVES or sends specific fixes back to the Driver, up to max_revisions
+        # times. That IS the two-agent conversation loop, and the Driver's files
+        # persist across every round.
+        "settings": {"quality_loop": True, "max_revisions": 4},
+        "agents": [
+            _agent("Driver", "Builder", CODER,
+                   "You write and iterate real code with a partner (the Navigator) who "
+                   "reviews each round. Build what the task asks:\n"
+                   "- New app / files → use the `files` tools (write_file, edit_file, "
+                   "read_file) in the run workspace, and `run_python` to VERIFY it runs "
+                   "before handing off. Deliver complete, runnable code — no TODOs.\n"
+                   "- Improving THIS app → use `system_files` (sys_read_file / "
+                   "sys_edit_file) on the real repo; keep diffs minimal and match the "
+                   "surrounding style. Never touch .git/ or data/ (blocked anyway).\n"
+                   "When the Navigator sends fixes, address EVERY point, then say what "
+                   "you changed and why. Do not restart or run the app itself.", 0.2,
+                   tools=["files", "run_python", "system_files"],
+                   skills=["Systematic Debugging"]),
+            _agent("Navigator", "Reviewer / pair partner", GENERAL,
+                   "You are the pairing partner reviewing the Driver's work each round. "
+                   "Look at what they actually produced (read the files with read_file / "
+                   "sys_read_file — do not trust the summary). Check it against the task: "
+                   "is it complete, correct, minimal, and does it run? Reply starting "
+                   "with exactly APPROVED (only when it fully satisfies the task) or "
+                   "REVISE followed by a short numbered list of concrete, specific fixes "
+                   "— name the file and what to change. Be demanding but do not invent "
+                   "problems; if it's genuinely done, APPROVE so the loop ends.", 0.25,
+                   tools=["files", "system_files"]),
+        ],
+    },
+    {
         "name": "App Improver",
         "icon": "🛠️",
         "description": "Reads THIS app's own source code and applies small, focused "

@@ -1049,3 +1049,17 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
 .sched-run { display: flex; align-items: center; gap: 8px; font-size: 11.5px; padding: 3px 0; }
 .sched-run-time { color: var(--text-3); flex-shrink: 0; }
 .sched-run-result { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* AI news / resources */
+.res-list { display: flex; flex-direction: column; gap: 8px; }
+.res-card {
+  display: flex; align-items: stretch; gap: 8px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+.res-card:hover { border-color: var(--border-strong); }
+.res-link { flex: 1; min-width: 0; padding: 11px 14px; text-decoration: none; color: inherit; }
+.res-title { font-weight: 600; font-size: 13.5px; color: var(--accent); }
+.res-summary { font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
+.res-meta { font-size: 11px; color: var(--text-3); margin-top: 4px; }
+.res-del { align-self: center; margin-right: 8px; opacity: 0; }
+.res-card:hover .res-del { opacity: .7; }

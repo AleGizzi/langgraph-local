@@ -680,6 +680,42 @@ def chat():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# ---------------- resources (AI news / trainings) ----------------
+
+@app.get("/api/resources")
+def resources_list():
+    import resources
+    cat = request.args.get("category")
+    return jsonify({"resources": storage.list_resources(cat),
+                    "categories": resources.CATEGORIES})
+
+
+@app.post("/api/resources")
+def resources_add():
+    """Add a link by hand."""
+    body = request.get_json(force=True) or {}
+    if not (body.get("url") or "").strip():
+        abort(400, "url is required")
+    new = storage.add_resource({**body, "source": "manual"})
+    return jsonify({"ok": True, "added": 1 if new else 0})
+
+
+@app.delete("/api/resources/<int:rid>")
+def resources_delete(rid):
+    storage.delete_resource(rid)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/resources/refresh")
+def resources_refresh():
+    """Run the research agent to find fresh links for a category (blocks until
+    done — the caller shows a spinner)."""
+    import resources
+    body = request.get_json(force=True) or {}
+    return jsonify(resources.refresh(category=body.get("category", "news"),
+                                     n=int(body.get("n", 6))))
+
+
 # ---------------- scheduled tasks ----------------
 
 @app.get("/api/schedules")

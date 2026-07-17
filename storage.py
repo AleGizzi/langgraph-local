@@ -118,6 +118,16 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
     value REAL
 );
 CREATE INDEX IF NOT EXISTS idx_sched_runs ON schedule_runs(schedule_id, ran_at);
+CREATE TABLE IF NOT EXISTS resources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    summary TEXT,
+    category TEXT NOT NULL DEFAULT 'news',
+    source TEXT NOT NULL DEFAULT 'agent',
+    added_at REAL NOT NULL,
+    UNIQUE(url)
+);
 """
 
 
@@ -220,6 +230,37 @@ def list_schedule_runs(sid: int, limit: int = 200) -> list:
             " LIMIT ?", (sid, limit)).fetchall()
     return [{"id": r["id"], "ran_at": r["ran_at"], "ok": bool(r["ok"]),
              "result": r["result"], "value": r["value"]} for r in rows]
+
+
+# ---------------- resources (AI news / trainings) ----------------
+
+def list_resources(category: str = None) -> list:
+    with _conn() as c:
+        if category:
+            rows = c.execute("SELECT * FROM resources WHERE category=? ORDER BY added_at DESC",
+                             (category,)).fetchall()
+        else:
+            rows = c.execute("SELECT * FROM resources ORDER BY added_at DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_resource(d: dict) -> bool:
+    """Insert a resource; returns True if new, False if the URL already exists."""
+    url = (d.get("url") or "").strip()
+    if not url:
+        return False
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT OR IGNORE INTO resources (title, url, summary, category, source, added_at)"
+            " VALUES (?,?,?,?,?,?)",
+            (d.get("title", url)[:300], url, (d.get("summary") or "")[:600],
+             d.get("category", "news"), d.get("source", "agent"), time.time()))
+        return cur.rowcount > 0
+
+
+def delete_resource(rid: int):
+    with _conn() as c:
+        c.execute("DELETE FROM resources WHERE id=?", (rid,))
 
 
 def init_db():

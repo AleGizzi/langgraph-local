@@ -33,6 +33,10 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   from each result and chart its evolution, or save findings to a knowledge
   folder. Runs only while the app is on (keep it running / use the systemd
   service or desktop app for 24/7).
+- **AI News** (#/resources): curated links on AI news, running local LLMs,
+  and open-source tools, in three tabs. "Refresh with agent" runs a
+  web-researching agent to find fresh links for the current tab; you can
+  also add links by hand. Needs internet.
 - **Runs** (#/runs): history of every team execution. Open one to replay the
   timeline, read the final deliverable, download files (📦 artifacts, .zip).
 - **Knowledge** (#/knowledge): a Markdown vault. Team deliverables are archived
@@ -82,6 +86,10 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   local model ESTIMATES how much is confident-but-unverifiable, shown as a 🔮
   pill per reply plus a conversation average. It is an estimate to guide
   skepticism, not a measurement.
+- **Pair Builder team** (Agents → Teams): two agents in a build LOOP — the
+  Driver writes and runs the code, the Navigator reviews and sends it back
+  with fixes until APPROVED (up to 4 rounds). Files are real: point it at a
+  new app to build (workspace) or at THIS app to improve (system_files).
 - **App Improver team** (Studio): reads and edits THIS app's own source code
   on request (system_files tools, minimal diffs). Review with `git diff`,
   restart the app to apply. Writes to .git/ and data/ are blocked.
