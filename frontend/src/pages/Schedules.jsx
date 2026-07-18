@@ -108,6 +108,23 @@ function ScheduleEditor({ schedule, onClose, onSaved }) {
     params: { ...(p.params || {}) }, tools: [...(p.tools || [])], skills: [...(p.skills || [])],
   });
 
+  const [drafting, setDrafting] = useState(false);
+  const draftWithAI = async () => {
+    const desc = prompt.trim() || name.trim();
+    if (!desc) { toast("Describe what you want the task to do first", true); return; }
+    setDrafting(true);
+    try {
+      const d = await api("/schedules/draft", { method: "POST", body: { request: desc } });
+      setName(d.name); setPrompt(d.prompt); setInterval(d.interval_seconds);
+      setTrack(d.track_number); setNotify(d.notify);
+      setFolder(d.knowledge_folder || "");
+      setMode("agent");
+      setAgent((a) => ({ ...a, tools: d.tools?.length ? d.tools : a.tools }));
+      toast("Drafted — review the fields, pick a model, and create");
+    } catch (e) { toast(e.message, true); }
+    setDrafting(false);
+  };
+
   const save = async () => {
     if (!prompt.trim()) { toast("Describe the task (prompt)", true); return; }
     if (mode === "agent" && !agent.model) { toast("Pick a model", true); return; }
@@ -140,9 +157,16 @@ function ScheduleEditor({ schedule, onClose, onSaved }) {
           <div className="field"><label>Name</label>
             <input type="text" value={name} placeholder="e.g. USD/ARS daily check"
               onChange={(e) => setName(e.target.value)} /></div>
-          <div className="field"><label>Task prompt — what to do each time</label>
+          <div className="field">
+            <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Task prompt — what to do each time</span>
+              <button className="btn sm" onClick={draftWithAI} disabled={drafting}
+                title="Describe your task in the prompt, then let a model fill in the schedule">
+                {drafting ? "Drafting…" : "🪄 Draft with AI"}
+              </button>
+            </label>
             <textarea rows={3} value={prompt}
-              placeholder="e.g. Search the web for the current USD to ARS blue dollar exchange rate and report today's value as a single number."
+              placeholder="e.g. Search the web for the current USD to ARS blue dollar exchange rate and report today's value as a single number. (Or type a rough idea and click 'Draft with AI'.)"
               onChange={(e) => setPrompt(e.target.value)} /></div>
           <div className="row">
             <div className="field"><label>Runs</label>

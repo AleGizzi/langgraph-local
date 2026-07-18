@@ -337,3 +337,58 @@ def draft_tool(provider: str, model: str, request: str,
     suggestion = (re.sub(r"\W+", "_", names[0]).strip("_") + ".py") if names else "my_tool.py"
     return {"code": code, "tools": names, "error": error,
             "filename_suggestion": suggestion}
+
+
+SCHEDULE_SYSTEM = """You design a SCHEDULED TASK for a local-LLM agent app. The
+task runs unattended on an interval. Given a plain-language description, output
+ONLY a JSON object:
+{
+  "name": "short label",
+  "prompt": "clear, self-contained instruction the agent runs every time",
+  "interval_seconds": <900|3600|21600|43200|86400|604800>,
+  "tools": ["only from the AVAILABLE TOOLS given"],
+  "track_number": <true if the task produces a single number to chart over time>,
+  "notify": <true if the user should be alerted each run>,
+  "knowledge_folder": "<slug>" or null (set when results should accumulate as notes)
+}
+Rules:
+- If the task needs the internet (news, prices, research), include web_search and
+  read_webpage in tools.
+- Prompts that report a value to track should ask for the number explicitly.
+- Prefer daily (86400) unless the description implies otherwise.
+- Keep the prompt concrete and give the agent everything it needs."""
+
+
+def draft_schedule(provider: str, model: str, request: str, tools: list,
+                   current: dict = None, feedback: str = None) -> dict:
+    """Draft a scheduled-task config from a natural-language description."""
+    ctx = f"AVAILABLE TOOLS: {json.dumps(tools)}"
+    user = f"{ctx}\n\nDesign a scheduled task for:\n{request}"
+    if current and feedback:
+        user = (f"{ctx}\n\nOriginal request:\n{request}\n\nCurrent draft:\n"
+                f"{json.dumps(current, ensure_ascii=False)}\n\nRevise per this "
+                f"feedback:\n{feedback}\nReturn the full revised JSON.")
+    data = _extract_json(_call(provider, model, SCHEDULE_SYSTEM, user)) or {}
+
+    allowed_intervals = {900, 3600, 21600, 43200, 86400, 604800}
+    try:
+        interval = int(data.get("interval_seconds", 86400))
+    except (TypeError, ValueError):
+        interval = 86400
+    if interval not in allowed_intervals:
+        # snap to the nearest allowed interval
+        interval = min(allowed_intervals, key=lambda v: abs(v - interval))
+
+    want_tools = [t for t in (data.get("tools") or []) if t in tools]
+    folder = data.get("knowledge_folder")
+    folder = re.sub(r"[^\w/ -]", "", str(folder)).strip("/ ") if folder else None
+
+    return {
+        "name": str(data.get("name") or request[:40])[:120].strip() or "Scheduled task",
+        "prompt": str(data.get("prompt") or request).strip(),
+        "interval_seconds": interval,
+        "tools": want_tools,
+        "track_number": bool(data.get("track_number", False)),
+        "notify": bool(data.get("notify", False)),
+        "knowledge_folder": folder or None,
+    }

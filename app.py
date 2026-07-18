@@ -758,6 +758,31 @@ def schedule_run_log(rid):
     return jsonify(r)
 
 
+@app.post("/api/schedules/draft")
+def schedules_draft():
+    """AI-draft a schedule config from a plain-language description."""
+    import wizard
+    body = request.get_json(force=True) or {}
+    req = (body.get("request") or "").strip()
+    if not req:
+        abort(400, "describe the task")
+    provider = body.get("provider") if body.get("provider") in ("ollama", "lmstudio") else "ollama"
+    model = body.get("model") or ""
+    if not model:
+        import help as help_mod
+        prov, model = help_mod.pick_model(providers.list_models())
+        provider = prov or provider
+    if not model:
+        abort(400, "no local model available")
+    try:
+        return jsonify(wizard.draft_schedule(
+            provider, model, req,
+            tools=sorted(tools_mod.valid_tool_names()),
+            current=body.get("current"), feedback=body.get("feedback")))
+    except Exception as e:  # noqa: BLE001
+        abort(500, f"{type(e).__name__}: {e}")
+
+
 @app.post("/api/schedules")
 def schedules_create():
     body = request.get_json(force=True) or {}
