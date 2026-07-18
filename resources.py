@@ -20,15 +20,41 @@ CATEGORIES = {
 _WORKSPACE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "workspaces", "resources")
 
-_PROMPT = """You are a research assistant curating links for a developer who runs
-LOCAL open-source LLMs. Find CURRENT, high-quality {desc}.
+# The part the USER can edit per category — "what to look for". The JSON-format
+# contract is appended separately in refresh() so the parser always works even
+# if the user rewrites the guidance.
+DEFAULT_PROMPTS = {
+    "news": "Find CURRENT, high-quality AI and local-LLM news and announcements "
+            "from the last week or two — model releases, tooling updates, notable "
+            "research. Prefer primary sources (project sites, official blogs, "
+            "GitHub) over listicles.",
+    "training": "Find high-quality tutorials, courses, guides and hands-on "
+                "walkthroughs for LEARNING to run and work with local open-source "
+                "LLMs — Ollama, llama.cpp, fine-tuning, LoRA, quantization, RAG, "
+                "prompt engineering, building agents. These are skills the user "
+                "wants to learn, so favor practical, well-regarded material.",
+    "tools": "Find open-source local-AI tools, models, frameworks and integrations "
+             "worth knowing — things a developer running local LLMs could actually "
+             "use. Prefer active, reputable projects.",
+}
 
-Use web_search (and read_webpage if useful) to find real, working links. Prefer
-primary sources (project sites, docs, reputable blogs, GitHub) over listicles.
-Avoid paywalled or login-only pages.
+_JSON_CONTRACT = ("\n\nUse web_search (and read_webpage if useful) to find real, "
+                  "working links — no paywalled or login-only pages. Return ONLY a "
+                  "JSON array of up to {n} items, nothing else:\n"
+                  '[{{"title": "...", "url": "https://...", "summary": "one '
+                  'sentence on why it is useful"}}]')
 
-Return ONLY a JSON array of up to {n} items, nothing else:
-[{{"title": "...", "url": "https://...", "summary": "one sentence on why it's useful"}}]"""
+
+def get_prompt(category: str) -> str:
+    """The editable search-guidance prompt for a category (stored or default)."""
+    if category not in CATEGORIES:
+        return ""
+    return storage.get_meta(f"resource_prompt:{category}") or DEFAULT_PROMPTS.get(category, "")
+
+
+def set_prompt(category: str, text: str):
+    if category in CATEGORIES:
+        storage.set_meta(f"resource_prompt:{category}", (text or "").strip())
 
 
 def _extract_items(text: str) -> list:
@@ -76,7 +102,9 @@ def refresh(category: str = "news", n: int = 6,
                               "return real links you found via search.",
              "params": {"temperature": 0.3}, "tools": ["web_search", "read_webpage"],
              "skills": []}
-    prompt = _PROMPT.format(desc=CATEGORIES[category], n=n)
+    prompt = ("You are a research assistant curating links for a developer who "
+              "runs LOCAL open-source LLMs.\n\n" + get_prompt(category)
+              + _JSON_CONTRACT.format(n=n))
     final, err = "", None
     try:
         for ev in engine.chat_stream(agent, [{"role": "user", "content": prompt}],

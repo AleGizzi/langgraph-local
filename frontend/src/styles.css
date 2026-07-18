@@ -134,7 +134,7 @@ input, textarea, select { font: inherit; color: var(--text); }
 
 /* ---------------- main ---------------- */
 .main { flex: 1; overflow-y: auto; }
-.page { max-width: 1060px; margin: 0 auto; padding: 28px 32px 64px; }
+.page { max-width: 1180px; margin: 0 auto; padding: 28px 32px 64px; }
 .page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; gap: 12px; }
 .page-title { font-size: 22px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
 .page-sub { color: var(--text-2); margin: 2px 0 0; font-size: 13px; }
@@ -643,7 +643,7 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
 .dash-tile-l { font-size: 12px; color: var(--text-3); }
 .dash-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 820px) { .dash-cols, .dash-tiles { grid-template-columns: 1fr 1fr; } }
-.dash-card { padding: 16px; }
+.dash-card { padding: 16px; min-width: 0; }
 .dash-card h3 { margin: 0 0 4px; font-size: 14px; }
 .dash-card .sub { margin-bottom: 10px; }
 .dash-row {

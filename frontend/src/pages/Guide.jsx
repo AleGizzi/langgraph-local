@@ -130,14 +130,26 @@ export default function Guide() {
   const [active, setActive] = useState(SECTIONS[0].id);
 
   useEffect(() => {
-    const els = SECTIONS.map((s) => document.getElementById("guide-" + s.id)).filter(Boolean);
-    const obs = new IntersectionObserver((entries) => {
-      const vis = entries.filter((e) => e.isIntersecting)
-        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-      if (vis) setActive(vis.target.id.replace("guide-", ""));
-    }, { rootMargin: "-80px 0px -70% 0px" });
-    els.forEach((el) => obs.observe(el));
-    return () => obs.disconnect();
+    // Scroll-spy on the actual scroll container (.main). An IntersectionObserver
+    // with a narrow band can never highlight the last sections — they never
+    // reach the band once the page is scrolled to the bottom. Compute the active
+    // section directly: the last one whose top is above a threshold, and force
+    // the final section when scrolled to the bottom.
+    const scroller = document.querySelector(".main") || window;
+    const onScroll = () => {
+      const els = SECTIONS.map((s) => document.getElementById("guide-" + s.id));
+      const sc = scroller === window ? document.documentElement : scroller;
+      const atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 8;
+      if (atBottom) { setActive(SECTIONS[SECTIONS.length - 1].id); return; }
+      let current = SECTIONS[0].id;
+      for (const el of els) {
+        if (el && el.getBoundingClientRect().top <= 140) current = el.id.replace("guide-", "");
+      }
+      setActive(current);
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => scroller.removeEventListener("scroll", onScroll);
   }, []);
 
   return (

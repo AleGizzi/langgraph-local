@@ -755,6 +755,24 @@ def resources_delete(rid):
     return jsonify({"ok": True})
 
 
+@app.get("/api/resources/prompt")
+def resources_get_prompt():
+    """The editable search-guidance prompt for a category."""
+    import resources
+    cat = request.args.get("category", "news")
+    return jsonify({"category": cat, "prompt": resources.get_prompt(cat),
+                    "default": resources.DEFAULT_PROMPTS.get(cat, "")})
+
+
+@app.put("/api/resources/prompt")
+def resources_set_prompt():
+    import resources
+    body = request.get_json(force=True) or {}
+    cat = body.get("category", "news")
+    resources.set_prompt(cat, body.get("prompt", ""))
+    return jsonify({"ok": True, "prompt": resources.get_prompt(cat)})
+
+
 @app.post("/api/resources/refresh")
 def resources_refresh():
     """Run the research agent to find fresh links for a category (blocks until

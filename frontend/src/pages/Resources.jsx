@@ -24,9 +24,24 @@ export default function Resources() {
   const [refreshing, setRefreshing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [manual, setManual] = useState({ url: "", title: "" });
+  const [editingPrompt, setEditingPrompt] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [promptDefault, setPromptDefault] = useState("");
 
   const load = () => api("/resources").then((d) => setItems(d.resources)).catch(() => {});
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api(`/resources/prompt?category=${cat}`).then((d) => {
+      setPrompt(d.prompt); setPromptDefault(d.default);
+    }).catch(() => {});
+    setEditingPrompt(false);
+  }, [cat]);
+
+  const savePrompt = async () => {
+    await api("/resources/prompt", { method: "PUT", body: { category: cat, prompt } });
+    toast("Search prompt saved — future refreshes will use it");
+    setEditingPrompt(false);
+  };
 
   const refresh = async () => {
     setRefreshing(true);
@@ -63,6 +78,9 @@ export default function Resources() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" onClick={() => setEditingPrompt(!editingPrompt)}>
+            ✏️ Edit search prompt
+          </button>
           <button className="btn" onClick={() => setAdding(!adding)}>＋ Add link</button>
           <button className="btn primary" onClick={refresh} disabled={refreshing}>
             {refreshing ? "🔎 Researching…" : "🔄 Refresh with agent"}
@@ -74,6 +92,27 @@ export default function Resources() {
         key: k, label: `${ico} ${label}`,
         badge: items.filter((r) => r.category === k).length || undefined,
       }))} />
+
+      {editingPrompt && (
+        <div className="card" style={{ padding: 14, marginBottom: 12 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>
+            What the agent looks for in <b>{CAT_META[cat][1]}</b>
+          </div>
+          <div className="help" style={{ marginBottom: 8 }}>
+            Edit what the research agent searches for when you click "Refresh". Describe the
+            kind of {CAT_META[cat][1].toLowerCase()} you want — the agent adds the search and
+            JSON-format handling itself. This is how you tune your list over time.
+          </div>
+          <textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)}
+            style={{ width: "100%", padding: 9, border: "1px solid var(--border)",
+                     borderRadius: 6, fontSize: 13, resize: "vertical" }} />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button className="btn primary sm" onClick={savePrompt}>Save prompt</button>
+            <button className="btn sm" onClick={() => setPrompt(promptDefault)}>Reset to default</button>
+            <button className="btn sm ghost" onClick={() => setEditingPrompt(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {adding && (
         <div className="card" style={{ padding: 12, marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
