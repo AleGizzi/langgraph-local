@@ -492,6 +492,12 @@ class TeamRunner:
         # Gates concurrent LLM calls: >1 only when the parallel toggle is on
         # and the hardware assessment says the machine can take it.
         self.llm_gate = threading.Semaphore(max(1, max_concurrency))
+        # Objective verification state, shared across the run so the review loop
+        # can gate on ground truth instead of an agent's word, feed the real
+        # failure back to the builder, and remember what has already failed.
+        self._last_exec = None          # (tool_name, passed) of the newest exec-tool result
+        self._last_exec_output = ""     # its raw output (the traceback / test result)
+        self._attempt_log = []          # short "tried → outcome" notes across revisions
 
     # ---------------- LLM helpers ----------------
 
@@ -697,7 +703,13 @@ class TeamRunner:
                     except Exception as e:  # noqa: BLE001
                         result = f"Tool error: {e}"
                     if name in self._EXEC_PASS:
-                        last_exec = (name, self._EXEC_PASS[name](str(result)))
+                        passed = self._EXEC_PASS[name](str(result))
+                        last_exec = (name, passed)
+                        # Share the newest verification with the run so the review
+                        # loop can gate on ground truth and hand the real failure
+                        # back to the builder (test-driven feedback).
+                        self._last_exec = (name, passed)
+                        self._last_exec_output = str(result)
                     if name in ("write_file", "edit_file") and \
                             not str(result).startswith("Error"):
                         # The workspace changed — stale repeat counts no longer apply.
@@ -814,6 +826,12 @@ class TeamRunner:
 
         rev_name = reviewer["name"]
 
+        # A reviewer that can run a verification tool must PROVE the work, not
+        # just opine on it — that is the structural "critic runs the oracle" rule.
+        reviewer_can_verify = any(
+            t in (reviewer.get("tools") or [])
+            for t in ("run_python", "arduino_compile", "check_stl"))
+
         def review_node(state: TeamState):
             self._check_cancel()
             self.emit("agent_start", agent=rev_name,
@@ -821,6 +839,10 @@ class TeamRunner:
                             "model": reviewer["model"],
                             "provider": reviewer.get("provider", "ollama")})
             hist = state.get("history", [])
+            # Reset the shared verification so _last_exec reflects THIS reviewer's
+            # own run, not a stale pass from an earlier agent.
+            self._last_exec = None
+            self._last_exec_output = ""
             sys = self._agent_system_prompt(reviewer) + (
                 "\n\nYou are the final quality gate. Review the work below against "
                 "the task. Reply starting with exactly one word on the first line: "
@@ -832,12 +854,30 @@ class TeamRunner:
             content = self._stream_call(reviewer, [
                 SystemMessage(content=sys), HumanMessage(content=user)])
             approved = content.strip().upper().startswith("APPROVED")
+
+            # STRUCTURAL GATE: if this reviewer has a verification tool, an
+            # APPROVED is only valid when the reviewer actually ran it and it
+            # PASSED. No run, or a failing run, overturns the approval — this is
+            # what stopped a broken app shipping on a reviewer's word.
+            override = None
+            if reviewer_can_verify and approved:
+                if self._last_exec is None:
+                    override = ("REVISE\n\n[Automatic gate] You approved without "
+                                "running the verification yourself. Run it and only "
+                                "approve on a passing result.")
+                elif not self._last_exec[1]:
+                    override = ("REVISE\n\n[Automatic gate] Your own verification "
+                                f"({self._last_exec[0]}) did NOT pass, so this is not "
+                                "approved.")
+            if override:
+                approved = False
+                content = override
+
             verdict = "approved" if approved else "revise"
             self.emit("agent_end", agent=rev_name, content=content,
                       meta={"verdict": verdict})
             out = {"history": [{"agent": rev_name, "content": content, "ts": time.time()}]}
             if approved or state.get("revision", 0) >= max_rev:
-                # final = last worker output before the review
                 worker_outs = [h for h in hist if h["agent"] != rev_name]
                 out["final"] = worker_outs[-1]["content"] if worker_outs else ""
                 out["next_agent"] = "END"
@@ -845,7 +885,22 @@ class TeamRunner:
                     self.emit("decision", agent=rev_name,
                               content=f"Max revisions ({max_rev}) reached; shipping best attempt.")
             else:
-                out["feedback"] = content
+                # TEST-DRIVEN HANDOFF: the builder gets the reviewer's fixes PLUS
+                # the raw failure output (the actual traceback/assertion), plus an
+                # ATTEMPT MEMORY of what earlier rounds already tried, so it stops
+                # oscillating between the same broken fixes.
+                fb = [content]
+                if self._last_exec_output:
+                    fb.append("\n## Exact verification output to fix (make this pass)\n"
+                              + _tail(self._last_exec_output, 1500))
+                    self._attempt_log.append(
+                        f"rev {state.get('revision', 0)}: "
+                        f"{self._last_exec_output.splitlines()[-1][:100]}"
+                        if self._last_exec_output.strip() else "")
+                if len(self._attempt_log) > 1:
+                    fb.append("\n## Already tried and still failing (do NOT repeat)\n"
+                              + "\n".join(f"- {a}" for a in self._attempt_log[-5:] if a))
+                out["feedback"] = "\n".join(fb)
                 out["revision"] = state.get("revision", 0) + 1
                 out["next_agent"] = workers[0]["name"]
                 self.emit("decision", agent=rev_name,
