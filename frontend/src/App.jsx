@@ -13,6 +13,7 @@ import Chat from "./pages/Chat.jsx";
 import Knowledge from "./pages/Knowledge.jsx";
 import Schedules from "./pages/Schedules.jsx";
 import Resources from "./pages/Resources.jsx";
+import Guide from "./pages/Guide.jsx";
 import PixelStudio from "./pages/PixelStudio.jsx";
 import HelpAssistant from "./components/HelpAssistant.jsx";
 import NotificationBell from "./components/NotificationBell.jsx";
@@ -43,6 +44,7 @@ const NAV = [
   ["models", "🧠", "Models"],
   ["setup", "📦", "Setup"],
   ["settings", "⚙️", "Settings"],
+  ["guide", "📖", "Guide"],
 ];
 
 function initialTheme() {
@@ -142,6 +144,7 @@ export default function App() {
   else if (route.page === "knowledge") view = <Knowledge />;
   else if (route.page === "schedules") view = <Schedules />;
   else if (route.page === "resources") view = <Resources />;
+  else if (route.page === "guide") view = <Guide />;
   else view = <Agents />;
 
   return (

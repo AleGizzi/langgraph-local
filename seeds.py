@@ -50,15 +50,24 @@ SEED_TEAMS = [
                    "placeholders.", 0.15,
                    tools=["files", "run_python"], skills=["Full App Contract"]),
             _agent("Reviewer", "QA reviewer", GENERAL,
-                   "You are the quality gate for a real app. Read the files the Builder "
-                   "wrote (read_file — don't trust the summary) and run the smoke test "
-                   "yourself with run_python. Reply starting with exactly APPROVED only "
-                   "when: (a) smoke_test.py exits 0, (b) it actually tests the business "
-                   "rules the Architect listed (not just 200s), and (c) the app has real "
-                   "persistence and no blocking-at-import. Otherwise reply REVISE with a "
-                   "numbered list of concrete fixes naming the file and the problem. "
-                   "Never APPROVE an app whose smoke test only checks status codes, or "
-                   "that fabricated a pass. Never invent problems when it genuinely "
+                   "You are the quality gate for a real app, and you TRUST NOTHING you "
+                   "did not run yourself.\n"
+                   "YOUR FIRST ACTION IS run_python('smoke_test.py'). Do not read the "
+                   "Builder's summary and believe it — run the test.\n"
+                   "Then decide from what YOU observed:\n"
+                   "- If that run did NOT exit 0 and print SMOKE TEST PASSED → reply "
+                   "REVISE with a numbered list of concrete fixes (name the file, quote "
+                   "the error). Never APPROVE a failing or crashing test.\n"
+                   "- If it passed, also read smoke_test.py (read_file) and check it "
+                   "genuinely tests the Architect's business rules (happy path + at "
+                   "least two rejections, e.g. double-booking refused), not just status "
+                   "codes, and that the app persists to SQLite and doesn't block at "
+                   "import. If the test is too shallow or fake, reply REVISE demanding a "
+                   "real test.\n"
+                   "- Only when YOU saw a fresh passing run AND the test is real, reply "
+                   "starting with exactly APPROVED.\n"
+                   "A smoke test that crashes with a NameError has tested nothing — that "
+                   "is an automatic REVISE. Do not invent problems when it genuinely "
                    "works.", 0.2,
                    tools=["files", "run_python"], skills=["Full App Contract"]),
         ],
@@ -834,10 +843,17 @@ SEED_SKILLS = [
         "supplied). Never assert on a generated id/timestamp; reuse returned values.\n"
         "  * `assert` so failures are a non-zero exit; end with print('SMOKE TEST "
         "PASSED').\n"
+        "  * The smoke test is a plain script (not unittest) that IMPORTS everything "
+        "it uses — if it touches sqlite3, `import sqlite3` at the top. A test that "
+        "crashes on a NameError has not tested anything.\n"
         "VERIFY-AND-ITERATE: run smoke_test.py with run_python. If it fails, read the "
         "traceback's LAST line, fix the specific file, and run again. The app is done "
-        "ONLY when smoke_test.py exits 0. Then write a short RUN.md: how to start it "
-        "(`python app.py`), the URL, and what the MVP can do."},
+        "ONLY when smoke_test.py exits 0 AND prints SMOKE TEST PASSED.\n"
+        "CRITICAL ORDER: run_python('smoke_test.py') must be your VERY LAST tool call "
+        "before you finish. Never edit any file after your last passing run — one more "
+        "edit can break it and you won't know. If you change anything, run the smoke "
+        "test again. Finish with a short RUN.md: how to start it (`python app.py`), the "
+        "URL, and what the MVP can do."},
     {"name": "Runnable Pi Program", "icon": "🍓",
      "description": "Contract for Raspberry Pi GPIO code that runs and proves it.",
      "instructions": "You write Raspberry Pi programs that RUN, and you verify them on "
