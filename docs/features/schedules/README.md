@@ -78,6 +78,24 @@ subset of fields, including switching between agent and team mode.
 - The scheduler thread swallows all exceptions by design (must never die); a
   failing run is recorded with `ok: false` and its error as the result.
 
+
+## Default templates + notifications
+
+Four ready-made schedules are seeded **disabled** (opt-in — nothing runs
+unattended without you enabling it): Daily AI news digest (web → summarize →
+insights → save to knowledge, notify), USD/ARS rate tracker (track + notify),
+PC health check (system_info, warns on low disk/RAM), Weekly knowledge gardener
+(proposes connections between recent notes). Seeded once via
+`seeds.seed_default_schedules` (meta-gated, so a deleted one stays gone).
+
+Notifications: set a schedule's `notify` flag and it fires a desktop popup +
+in-app bell notification on completion (critical if it failed, linked to the
+run). Agents can also notify mid-task with the `notify` tool. See
+`notifications.py` and the sidebar bell.
+
+New builtin tools used by templates: `system_info` (CPU/RAM/GPU/disk) and
+`notify`.
+
 ## How to verify
 
 1. Trivial deterministic prompt ("what is 100+250, number only"),

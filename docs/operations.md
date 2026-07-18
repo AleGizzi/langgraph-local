@@ -71,6 +71,9 @@ The service runs with `PORT=5860` and restarts automatically on failure (with 3-
 
 ### Desktop App (Pop!_OS / GNOME)
 
+You can also click **Settings → Hardware tab → Install as app** in the running
+app, which runs this same installer for you.
+
 Install Agent Studio as a launcher entry so it opens like any other app:
 
 ```bash

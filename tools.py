@@ -261,6 +261,26 @@ def _invoke_timed(llm, msgs):
 
 
 @tool
+def system_info() -> str:
+    """Report this computer's current state: CPU, RAM (total and free), GPU/VRAM,
+    and free disk space. Use to check machine health or decide what can run."""
+    try:
+        import sysinfo
+        hw = sysinfo.hardware()
+        gpu = hw.get("gpu")
+        gpu_s = (f"{gpu['name']} ({gpu.get('vram_total_gb', '?')}GB VRAM)"
+                 if gpu else "none (CPU-only)")
+        return (f"CPU: {hw.get('cpu', '?')} ({hw.get('cores', '?')} threads)\n"
+                f"RAM: {hw.get('ram_available_gb', '?')}GB free of "
+                f"{hw.get('ram_total_gb', '?')}GB\n"
+                f"GPU: {gpu_s}\n"
+                f"Disk free: {hw.get('disk_free_gb', '?')}GB\n"
+                f"OS: {hw.get('os', '?')}")
+    except Exception as e:  # noqa: BLE001
+        return f"Error reading system info: {e}"
+
+
+@tool
 def notify(title: str, message: str = "", important: bool = False) -> str:
     """Send the user a notification (a desktop popup + the in-app bell).
     Use to alert them to something worth their attention — a finding, a result,
@@ -738,6 +758,7 @@ TOOL_CATALOG = {
     "http_get": "Fetch a URL (needs internet)",
     "web_search": "Search the web for current information (needs internet)",
     "notify": "Send the user a desktop + in-app notification",
+    "system_info": "Report this PC's CPU, RAM, GPU and disk state",
     "read_webpage": "Read a web page as clean text (needs internet)",
     "run_python": "Run a Python file from the workspace — executes real code",
     "system_files": "Read AND EDIT real project files on this machine (allowed roots only)",
@@ -911,6 +932,8 @@ def resolve_tools(names: list, workspace: str) -> list:
             tools.append(web_search)
         elif n == "notify":
             tools.append(notify)
+        elif n == "system_info":
+            tools.append(system_info)
         elif n == "read_webpage":
             tools.append(read_webpage)
         elif n == "run_python":

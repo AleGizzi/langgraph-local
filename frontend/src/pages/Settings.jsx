@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api } from "../lib/api.js";
+import { api, toast } from "../lib/api.js";
 import CatalogTable from "../components/CatalogTable.jsx";
 import ImageModels from "../components/ImageModels.jsx";
 import FreeMemory from "../components/FreeMemory.jsx";
@@ -34,6 +34,39 @@ function AssessTable({ rows, showInstalled, onPick }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+function DesktopAppCard() {
+  const [st, setSt] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { api("/desktop-app").then(setSt).catch(() => {}); }, []);
+  const install = async () => {
+    setBusy(true);
+    try {
+      await api("/desktop-app/install", { method: "POST" });
+      toast("Installed — look for 'Agent Studio' in your app launcher");
+      setSt({ installed: true });
+    } catch (e) { toast(e.message, true); }
+    setBusy(false);
+  };
+  return (
+    <div className="card section-card">
+      <h2>🖥️ Install as a desktop app</h2>
+      <div className="sub">
+        Add <strong>Agent Studio</strong> to your Pop!_OS / GNOME app launcher and
+        dock. Launching it starts the local server (if needed) and opens a
+        dedicated app window — no browser tab. No admin password required.
+      </div>
+      <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
+        {st?.installed
+          ? <span className="chip" style={{ color: "var(--green)" }}>✅ Installed — find it in your launcher</span>
+          : <span className="help">Not installed yet.</span>}
+        <button className="btn primary" onClick={install} disabled={busy}>
+          {busy ? "Installing…" : st?.installed ? "Reinstall / update" : "＋ Install as app"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -97,6 +130,7 @@ export default function Settings() {
       </div>
 
       <FreeMemory />
+      <DesktopAppCard />
       </>}
 
       {tab === "installed" && (

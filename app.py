@@ -680,6 +680,34 @@ def chat():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# ---------------- desktop app install ----------------
+
+@app.get("/api/desktop-app")
+def desktop_app_status():
+    """Whether the app is installed as a desktop launcher."""
+    import os
+    path = os.path.expanduser("~/.local/share/applications/agent-studio.desktop")
+    return jsonify({"installed": os.path.isfile(path), "path": path})
+
+
+@app.post("/api/desktop-app/install")
+def desktop_app_install():
+    """Run the install-desktop-app.sh installer (no root; user-local)."""
+    import os
+    import subprocess
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "deploy", "install-desktop-app.sh")
+    if not os.path.isfile(script):
+        abort(500, "installer script not found")
+    try:
+        p = subprocess.run(["bash", script], capture_output=True, text=True, timeout=30)
+    except Exception as e:  # noqa: BLE001
+        abort(500, f"{type(e).__name__}: {e}")
+    if p.returncode != 0:
+        abort(500, (p.stderr or p.stdout or "install failed")[-300:])
+    return jsonify({"ok": True, "output": (p.stdout or "").strip()[-400:]})
+
+
 # ---------------- notifications ----------------
 
 @app.get("/api/notifications")

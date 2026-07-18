@@ -842,6 +842,64 @@ SEED_SKILLS = [
 ]
 
 
+def _sched(name, prompt, interval, tools, track=False, notify=True, folder=None,
+           model=GENERAL):
+    """A default scheduled-task template. Seeded DISABLED — the user reviews and
+    enables it, so nothing runs unattended without consent."""
+    return {"name": name, "prompt": prompt, "interval_seconds": interval,
+            "enabled": False, "track_number": track, "notify": notify,
+            "knowledge_folder": folder, "team_id": None,
+            "agent": {"name": name, "provider": "ollama", "model": model,
+                      "system_prompt": "You are a diligent assistant that runs a "
+                      "recurring task and reports concisely.",
+                      "params": {"temperature": 0.3}, "tools": tools, "skills": []}}
+
+
+# Useful ready-made schedules, seeded OFF. Enable the ones you want.
+SEED_SCHEDULES = [
+    _sched("Daily AI news digest",
+           "Search the web for the most important AI and local-LLM news from the "
+           "last day. Read the best 2-3 sources, then write a short digest: 4-6 "
+           "bullet highlights, then a 'What this means' section with 2 concrete "
+           "insights and 1 idea worth trying locally. Notify me with the headline "
+           "takeaways.",
+           86400, ["web_search", "read_webpage", "knowledge", "notify"],
+           folder="ai-news"),
+    _sched("USD/ARS rate tracker",
+           "Search the web for today's USD to ARS 'blue dollar' exchange rate. "
+           "Report the current sell value as a single number, and note the date. "
+           "Notify me if it moved sharply from a typical recent value.",
+           86400, ["web_search", "read_webpage", "notify"],
+           track=True, folder="usd-ars"),
+    _sched("PC health check",
+           "Check this computer's state with system_info. Report free RAM, free "
+           "disk, and GPU. If free disk is under 20GB or free RAM is under 2GB, "
+           "notify me as important with what's low; otherwise just note that all "
+           "is healthy.",
+           43200, ["system_info", "notify"], notify=True),
+    _sched("Weekly knowledge gardener",
+           "Search the knowledge vault for notes added recently. Pick 3-5 related "
+           "notes and propose, in one short note, connections or a synthesis "
+           "between them the user may have missed. Save it to the 'insights' "
+           "folder and notify me.",
+           604800, ["knowledge", "notify"], folder="insights"),
+]
+
+
+def seed_default_schedules():
+    """Offer each default schedule once (disabled), remembering what we've
+    offered so a deleted one stays gone."""
+    offered = set(storage.get_meta("seeded_schedules", []))
+    have = {s["name"] for s in storage.list_schedules()}
+    changed = False
+    for t in SEED_SCHEDULES:
+        if t["name"] not in offered and t["name"] not in have:
+            storage.create_schedule(t)
+            changed = True
+    storage.set_meta("seeded_schedules", sorted(offered | {t["name"] for t in SEED_SCHEDULES}))
+    return changed
+
+
 def seed_if_empty():
     changed = False
     if storage.count_teams() == 0:
@@ -892,6 +950,9 @@ def backfill_builtins():
             storage.create_team(t)
             changed = True
     storage.set_meta("seeded_teams", sorted(offered | {t["name"] for t in SEED_TEAMS}))
+
+    if seed_default_schedules():
+        changed = True
 
     # Builtin personas that predate the skills we just added (Architect, Code
     # Reviewer, Brainstormer) already exist, so the insert above skips them and
