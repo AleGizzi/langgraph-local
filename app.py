@@ -680,6 +680,27 @@ def chat():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# ---------------- notifications ----------------
+
+@app.get("/api/notifications")
+def notifications_list():
+    return jsonify({"notifications": storage.list_notifications(limit=50),
+                    "unread": storage.unread_notification_count()})
+
+
+@app.post("/api/notifications/read")
+def notifications_read():
+    body = request.get_json(force=True) or {}
+    storage.mark_notifications_read(body.get("ids"))
+    return jsonify({"ok": True, "unread": storage.unread_notification_count()})
+
+
+@app.delete("/api/notifications")
+def notifications_clear():
+    storage.clear_notifications()
+    return jsonify({"ok": True})
+
+
 # ---------------- resources (AI news / trainings) ----------------
 
 @app.get("/api/resources")

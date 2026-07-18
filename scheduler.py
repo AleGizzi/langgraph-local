@@ -153,6 +153,18 @@ def run_schedule(sid: int) -> dict:
     storage.update_schedule(sid, {
         "last_run": now, "last_result": result[:2000],
         "next_run": now + max(60, int(sch["interval_seconds"]))})
+
+    # Notify on finish if the schedule opted in (agents can also notify
+    # mid-task with the notify tool). Failures never break the run.
+    if sch.get("notify"):
+        try:
+            import notifications
+            head = f"⏰ {sch['name']}" if ok else f"⚠️ {sch['name']} failed"
+            notifications.send(head, result[:400], level="normal" if ok else "critical",
+                               source="schedule",
+                               link=f"#/run/{run_id}" if run_id else "#/schedules")
+        except Exception:  # noqa: BLE001
+            pass
     return {"ok": ok, "error": err, "result": result, "value": value, "run_id": run_id}
 
 

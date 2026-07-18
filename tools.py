@@ -261,6 +261,22 @@ def _invoke_timed(llm, msgs):
 
 
 @tool
+def notify(title: str, message: str = "", important: bool = False) -> str:
+    """Send the user a notification (a desktop popup + the in-app bell).
+    Use to alert them to something worth their attention — a finding, a result,
+    a problem. Keep the title short; put detail in the message. Set important
+    for things that shouldn't be missed."""
+    import notifications
+    try:
+        notifications.send(title.strip()[:200], (message or "").strip(),
+                           level="critical" if important else "normal",
+                           source="agent")
+        return f"Notified the user: {title[:80]}"
+    except Exception as e:  # noqa: BLE001
+        return f"Error sending notification: {e}"
+
+
+@tool
 def ask_agent(persona: str, question: str) -> str:
     """Spawn another agent and ask it ONE question, returning its reply.
     `persona` is a persona name from the library (e.g. 'Code Reviewer',
@@ -721,6 +737,7 @@ TOOL_CATALOG = {
     "current_datetime": "Current date and time",
     "http_get": "Fetch a URL (needs internet)",
     "web_search": "Search the web for current information (needs internet)",
+    "notify": "Send the user a desktop + in-app notification",
     "read_webpage": "Read a web page as clean text (needs internet)",
     "run_python": "Run a Python file from the workspace — executes real code",
     "system_files": "Read AND EDIT real project files on this machine (allowed roots only)",
@@ -892,6 +909,8 @@ def resolve_tools(names: list, workspace: str) -> list:
             tools.append(http_get)
         elif n == "web_search":
             tools.append(web_search)
+        elif n == "notify":
+            tools.append(notify)
         elif n == "read_webpage":
             tools.append(read_webpage)
         elif n == "run_python":

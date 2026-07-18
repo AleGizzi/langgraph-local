@@ -130,6 +130,16 @@ CREATE TABLE IF NOT EXISTS resources (
     added_at REAL NOT NULL,
     UNIQUE(url)
 );
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    body TEXT,
+    level TEXT NOT NULL DEFAULT 'normal',
+    source TEXT,
+    link TEXT,
+    read INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
 """
 
 
@@ -163,6 +173,7 @@ def _schedule_row(r) -> dict:
             "team_id": r["team_id"] if "team_id" in keys else None,
             "interval_seconds": r["interval_seconds"], "enabled": bool(r["enabled"]),
             "track_number": bool(r["track_number"]),
+            "notify": bool(r["notify"]) if "notify" in keys else False,
             "knowledge_folder": r["knowledge_folder"],
             "last_run": r["last_run"], "last_result": r["last_result"],
             "next_run": r["next_run"], "created_at": r["created_at"]}
@@ -185,13 +196,13 @@ def create_schedule(d: dict) -> dict:
     with _conn() as c:
         cur = c.execute(
             "INSERT INTO schedules (name, prompt, agent, team_id, interval_seconds,"
-            " enabled, track_number, knowledge_folder, next_run, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " enabled, track_number, notify, knowledge_folder, next_run, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (d.get("name", "Scheduled task"), d.get("prompt", ""),
              json.dumps(d.get("agent", {})), d.get("team_id"),
              int(d.get("interval_seconds", 86400)),
              int(bool(d.get("enabled", True))), int(bool(d.get("track_number", False))),
-             d.get("knowledge_folder"), now, now))
+             int(bool(d.get("notify", False))), d.get("knowledge_folder"), now, now))
         sid = cur.lastrowid
     return get_schedule(sid)
 
@@ -204,12 +215,13 @@ def update_schedule(sid: int, d: dict):
     with _conn() as c:
         c.execute(
             "UPDATE schedules SET name=?, prompt=?, agent=?, team_id=?,"
-            " interval_seconds=?, enabled=?, track_number=?, knowledge_folder=?,"
-            " last_run=?, last_result=?, next_run=? WHERE id=?",
+            " interval_seconds=?, enabled=?, track_number=?, notify=?,"
+            " knowledge_folder=?, last_run=?, last_result=?, next_run=? WHERE id=?",
             (m["name"], m["prompt"], json.dumps(m["agent"]), m.get("team_id"),
              int(m["interval_seconds"]), int(bool(m["enabled"])),
-             int(bool(m["track_number"])), m.get("knowledge_folder"),
-             m.get("last_run"), m.get("last_result"), m.get("next_run"), sid))
+             int(bool(m["track_number"])), int(bool(m.get("notify"))),
+             m.get("knowledge_folder"), m.get("last_run"), m.get("last_result"),
+             m.get("next_run"), sid))
     return get_schedule(sid)
 
 
@@ -288,6 +300,44 @@ def delete_resource(rid: int):
         c.execute("DELETE FROM resources WHERE id=?", (rid,))
 
 
+# ---------------- notifications ----------------
+
+def add_notification(d: dict) -> int:
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO notifications (title, body, level, source, link, created_at)"
+            " VALUES (?,?,?,?,?,?)",
+            (d.get("title", "")[:200], (d.get("body") or "")[:2000],
+             d.get("level", "normal"), d.get("source"), d.get("link"), time.time()))
+        return cur.lastrowid
+
+
+def list_notifications(limit: int = 50) -> list:
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM notifications ORDER BY id DESC LIMIT ?",
+                         (limit,)).fetchall()
+    return [dict(r) | {"read": bool(r["read"])} for r in rows]
+
+
+def unread_notification_count() -> int:
+    with _conn() as c:
+        return c.execute("SELECT COUNT(*) n FROM notifications WHERE read=0").fetchone()["n"]
+
+
+def mark_notifications_read(ids=None):
+    with _conn() as c:
+        if ids:
+            q = ",".join("?" * len(ids))
+            c.execute(f"UPDATE notifications SET read=1 WHERE id IN ({q})", tuple(ids))
+        else:
+            c.execute("UPDATE notifications SET read=1")
+
+
+def clear_notifications():
+    with _conn() as c:
+        c.execute("DELETE FROM notifications")
+
+
 def init_db():
     with _conn() as c:
         c.executescript(_SCHEMA)
@@ -304,6 +354,8 @@ def init_db():
         scols = {r["name"] for r in c.execute("PRAGMA table_info(schedules)")}
         if scols and "team_id" not in scols:
             c.execute("ALTER TABLE schedules ADD COLUMN team_id INTEGER")
+        if scols and "notify" not in scols:
+            c.execute("ALTER TABLE schedules ADD COLUMN notify INTEGER NOT NULL DEFAULT 0")
         srcols = {r["name"] for r in c.execute("PRAGMA table_info(schedule_runs)")}
         if srcols and "log" not in srcols:
             c.execute("ALTER TABLE schedule_runs ADD COLUMN log TEXT")

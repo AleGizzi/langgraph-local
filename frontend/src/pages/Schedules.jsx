@@ -86,6 +86,7 @@ function ScheduleEditor({ schedule, onClose, onSaved }) {
   const [prompt, setPrompt] = useState(schedule?.prompt || "");
   const [interval, setInterval] = useState(schedule?.interval_seconds || 86400);
   const [track, setTrack] = useState(schedule?.track_number || false);
+  const [notify, setNotify] = useState(schedule?.notify || false);
   const [folder, setFolder] = useState(schedule?.knowledge_folder || "");
   const [mode, setMode] = useState(schedule?.team_id ? "team" : "agent");
   const [teamId, setTeamId] = useState(schedule?.team_id || "");
@@ -113,7 +114,7 @@ function ScheduleEditor({ schedule, onClose, onSaved }) {
     if (mode === "team" && !teamId) { toast("Pick a team", true); return; }
     const body = {
       name: name || prompt.slice(0, 40), prompt,
-      interval_seconds: interval, track_number: track,
+      interval_seconds: interval, track_number: track, notify,
       knowledge_folder: folder.trim() || null,
       team_id: mode === "team" ? +teamId : null,
       agent: mode === "agent" ? agent : {},
@@ -152,9 +153,13 @@ function ScheduleEditor({ schedule, onClose, onSaved }) {
               <input type="text" value={folder} placeholder="e.g. usd-ars-tracking"
                 onChange={(e) => setFolder(e.target.value)} /></div>
           </div>
-          <label style={{ display: "inline-flex", gap: 8, alignItems: "center", cursor: "pointer", margin: "4px 0 10px" }}>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", margin: "4px 0 6px" }}>
             <input type="checkbox" checked={track} onChange={(e) => setTrack(e.target.checked)} />
             📈 Track a number — extract the first number from each result and chart its evolution
+          </label>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", margin: "0 0 10px" }}>
+            <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+            🔔 Notify me when it finishes — a desktop popup + the in-app bell
           </label>
 
           {mode === "team" ? (

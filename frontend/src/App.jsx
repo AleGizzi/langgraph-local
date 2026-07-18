@@ -15,6 +15,7 @@ import Schedules from "./pages/Schedules.jsx";
 import Resources from "./pages/Resources.jsx";
 import PixelStudio from "./pages/PixelStudio.jsx";
 import HelpAssistant from "./components/HelpAssistant.jsx";
+import NotificationBell from "./components/NotificationBell.jsx";
 import PixelSprite from "./components/PixelSprite.jsx";
 
 export const AppCtx = createContext(null);
@@ -153,6 +154,7 @@ export default function App() {
               <div className="logo-name">Agents Studio</div>
               <div className="logo-sub">LangGraph · local</div>
             </div>
+            <NotificationBell />
             <button className="sidebar-toggle" title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-label="Toggle sidebar" onClick={() => setCollapsed(!collapsed)}>
               {collapsed ? "»" : "«"}
