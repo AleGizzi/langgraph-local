@@ -34,7 +34,7 @@ wizard.
 
 - `GET /api/teams` — list, most-recently-updated first.
 - `POST /api/teams` / `PUT /api/teams/<id>` — validated by `_validate_team`:
-  - `name` required; `topology` ∈ `single|pipeline|supervisor|graph` (default `pipeline`).
+  - `name` required; `topology` ∈ `single|pipeline|supervisor/router|graph` (default `pipeline`).
   - ≥1 agent; `supervisor` requires ≥2 agents.
   - Each agent: `name` required and unique (case-insensitive), `model` required,
     `provider` defaults to `ollama` if invalid, `temperature` clamped 0–2

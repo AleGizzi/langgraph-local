@@ -25,6 +25,13 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   sentence; open a team to give it a task. Team buttons: 🎨 Canvas (visual
   pipeline editor), 👾 Pixel (Game-Boy-style animated view), ✏️ Edit.
   **Personas** tab = reusable agent definitions with Pokédex-style cards.
+- **Router topology / Smart Router team**: for token efficiency, a team can
+  use the 'router' topology — it classifies your request once with a small
+  fast model and sends the whole thing to the best specialist on the
+  right-tier model (one classification + one specialist, no orchestrator
+  loop). Measured ~2x faster and ~2x fewer tokens than a supervisor loop for
+  single-kind requests. Use supervisor when a task needs several specialists
+  coordinated.
 - **Chat** (#/chat): talk to one model directly, with the same settings as a
   persona (prompt, hyperparameters, tools, skills). Left sidebar keeps chat
   history. You can start a chat as a persona from the Agents → Personas tab.
