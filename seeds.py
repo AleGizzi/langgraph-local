@@ -14,6 +14,56 @@ def _agent(name, role, model, prompt, temperature=0.7, tools=None, provider="oll
 
 SEED_TEAMS = [
     {
+        "name": "App Factory Pro",
+        "icon": "🏗️",
+        "description": "Builds a complete, RUNNING multi-file app (SQLite persistence, "
+                       "real business logic) and loops — Architect plans, Builder codes "
+                       "and runs it, Reviewer sends it back until a domain smoke test "
+                       "passes. Give it a full app idea; get a verified MVP.",
+        "topology": "pipeline",
+        # High revision budget: a real app rarely passes its domain smoke test on
+        # the first try, so the Reviewer↔Builder loop needs room to iterate.
+        "settings": {"quality_loop": True, "max_revisions": 6},
+        "agents": [
+            _agent("Architect", "Software architect", GENERAL,
+                   "Turn the app idea into a concrete build plan the Builder can follow. "
+                   "Output ONLY:\n"
+                   "1. The data model: each table, its columns and types.\n"
+                   "2. The business rules that MUST hold (e.g. no double-booking a slot; "
+                   "bookings only inside availability windows). List them as testable "
+                   "statements.\n"
+                   "3. The routes/pages: method, path, purpose.\n"
+                   "4. The file layout (app.py, db.py, domain module(s), templates, "
+                   "smoke_test.py).\n"
+                   "Assume Flask + sqlite3 + stdlib only, offline. Keep it to the MVP "
+                   "that delivers the core value. WRITE NO CODE — the Builder does that.",
+                   0.3),
+            _agent("Builder", "Full-stack engineer", CODER,
+                   "Build the whole app from the Architect's plan, writing every file "
+                   "with write_file, then VERIFYING with run_python before you hand off. "
+                   "Follow your Full App Contract skill exactly: multi-file, SQLite "
+                   "persistence, the real business rules implemented in callable "
+                   "functions, and a smoke_test.py that proves those rules (happy path + "
+                   "at least two rejections). Iterate until run_python('smoke_test.py') "
+                   "exits 0 and prints SMOKE TEST PASSED. When the Reviewer sends fixes, "
+                   "address every one and re-run the smoke test. No TODOs, no "
+                   "placeholders.", 0.15,
+                   tools=["files", "run_python"], skills=["Full App Contract"]),
+            _agent("Reviewer", "QA reviewer", GENERAL,
+                   "You are the quality gate for a real app. Read the files the Builder "
+                   "wrote (read_file — don't trust the summary) and run the smoke test "
+                   "yourself with run_python. Reply starting with exactly APPROVED only "
+                   "when: (a) smoke_test.py exits 0, (b) it actually tests the business "
+                   "rules the Architect listed (not just 200s), and (c) the app has real "
+                   "persistence and no blocking-at-import. Otherwise reply REVISE with a "
+                   "numbered list of concrete fixes naming the file and the problem. "
+                   "Never APPROVE an app whose smoke test only checks status codes, or "
+                   "that fabricated a pass. Never invent problems when it genuinely "
+                   "works.", 0.2,
+                   tools=["files", "run_python"], skills=["Full App Contract"]),
+        ],
+    },
+    {
         "name": "Pair Builder",
         "icon": "👯",
         "description": "Two agents in a build loop: the Driver writes and runs the "
@@ -745,6 +795,49 @@ SEED_SKILLS = [
         "  * End with: print('SMOKE TEST PASSED').\n"
         "The app is not done when the code looks right. It is done when\n"
         "smoke_test.py exits 0 and prints SMOKE TEST PASSED."},
+    {"name": "Full App Contract", "icon": "🏗️",
+     "description": "Contract for a multi-file Flask app with real persistence, "
+                    "proven working by a domain smoke test.",
+     "instructions": "You build a COMPLETE, RUNNING Flask web app — multi-file, with "
+        "real data persistence and business logic that actually works. Obey this "
+        "contract exactly.\n"
+        "STRUCTURE (write each with write_file; a code block in your reply is NOT a "
+        "delivered file):\n"
+        "  * app.py — creates `app = Flask(__name__)` at module level, registers "
+        "routes, and app.run() ONLY inside `if __name__ == '__main__':`.\n"
+        "  * db.py — sqlite3 setup: a get_db() helper and an init_db() that creates "
+        "tables IF NOT EXISTS. Call init_db() at import so a fresh clone works with no "
+        "setup step. Store the DB file in the working directory.\n"
+        "  * models/logic split as the app needs (e.g. booking.py for availability + "
+        "conflict rules). Keep business rules in functions the smoke test can call "
+        "directly, NOT buried in route handlers.\n"
+        "  * templates via render_template_string, or a static index — the MVP must be "
+        "usable in a browser, not just an API.\n"
+        "  * smoke_test.py (see below) and requirements.txt (pinned, flask + stdlib; "
+        "no SQLAlchemy, no external services, no network — it must run offline).\n"
+        "DATA & LOGIC:\n"
+        "  1. Persist real data in SQLite. Use a fresh temp DB in the smoke test so it "
+        "is deterministic (set an env var or a module constant the test can override).\n"
+        "  2. Implement the ACTUAL domain rules the task asks for — e.g. a booking app "
+        "must prevent double-booking the same slot, respect availability windows, and "
+        "reject invalid times. A CRUD skeleton that ignores the rules is NOT done.\n"
+        "  3. Never do blocking work at import (no app.run(), no while True, no real "
+        "network). Anything that imports app.py must return instantly.\n"
+        "SMOKE TEST — smoke_test.py must PROVE the domain works, not just that routes "
+        "return 200:\n"
+        "  * Use `app.test_client()` (no port, no real HTTP) and/or call the logic "
+        "functions directly, against a FRESH temp database.\n"
+        "  * Exercise the happy path AND at least two business rules — e.g. book a "
+        "slot succeeds; booking the SAME slot again is rejected; a slot outside "
+        "availability is rejected.\n"
+        "  * Assert only on stable things (status codes, presence of a key, values YOU "
+        "supplied). Never assert on a generated id/timestamp; reuse returned values.\n"
+        "  * `assert` so failures are a non-zero exit; end with print('SMOKE TEST "
+        "PASSED').\n"
+        "VERIFY-AND-ITERATE: run smoke_test.py with run_python. If it fails, read the "
+        "traceback's LAST line, fix the specific file, and run again. The app is done "
+        "ONLY when smoke_test.py exits 0. Then write a short RUN.md: how to start it "
+        "(`python app.py`), the URL, and what the MVP can do."},
     {"name": "Runnable Pi Program", "icon": "🍓",
      "description": "Contract for Raspberry Pi GPIO code that runs and proves it.",
      "instructions": "You write Raspberry Pi programs that RUN, and you verify them on "
@@ -883,6 +976,27 @@ SEED_SCHEDULES = [
            "between them the user may have missed. Save it to the 'insights' "
            "folder and notify me.",
            604800, ["knowledge", "notify"], folder="insights"),
+    _sched("New agent tools & schedule ideas",
+           "Search the web for new open-source tools, APIs, MCP servers or "
+           "integrations that would be useful to give to local LLM agents (things "
+           "an agent could call as a tool). Read the best 2-3 finds. Then write a "
+           "short brief: for each promising tool, what it does and how an agent "
+           "could use it; and propose 2-3 concrete NEW scheduled-task ideas the "
+           "user could set up (with a one-line prompt each). Save it to the "
+           "'agent-ideas' folder and notify me with the highlights.",
+           604800, ["web_search", "read_webpage", "knowledge", "notify"],
+           folder="agent-ideas"),
+    _sched("Daily runs & activity summary",
+           "Summarize what happened in this app over the last day: notable team "
+           "runs and their outcomes, and anything that failed and might need "
+           "attention. Keep it to a short digest. Notify me with the summary.",
+           86400, ["knowledge", "notify"]),
+    _sched("Local model catalog watch",
+           "Search the web for newly released or newly popular open-weight LLMs "
+           "that would run well on a machine with ~31GB RAM and a 4GB GPU (so 7B-14B "
+           "class, quantized). Read the best source. Report 2-3 candidates worth "
+           "trying with a one-line reason each, and notify me.",
+           604800, ["web_search", "read_webpage", "notify"], folder="model-watch"),
 ]
 
 
