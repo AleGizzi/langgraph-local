@@ -14,6 +14,39 @@ def _agent(name, role, model, prompt, temperature=0.7, tools=None, provider="oll
 
 SEED_TEAMS = [
     {
+        "name": "Smart Router",
+        "icon": "🧭",
+        "description": "Classifies your request once with a small fast model, then "
+                       "hands the WHOLE thing to the best-suited specialist on the "
+                       "right-tier model — token-efficient: one classification + one "
+                       "specialist, no orchestrator loop.",
+        "topology": "router",
+        "settings": {},
+        "agents": [
+            # agents[0] is an ignored slot (editor symmetry with supervisor).
+            _agent("Router", "Classifier", GENERAL,
+                   "You classify the request and route it. (Handled by the engine's "
+                   "router; this slot is not run directly.)", 0.0),
+            _agent("Quick Assistant", "kinds: trivial, general", GENERAL,
+                   "You answer directly and concisely. Handle greetings, quick facts, "
+                   "and short general questions with no fuss.", 0.4),
+            _agent("Coder", "kinds: code, code_hard", CODER,
+                   "You are an expert programmer. Write complete, runnable code with a "
+                   "brief usage example. Use your tools to verify it runs when you can.",
+                   0.2, tools=["files", "run_python"]),
+            _agent("Web Researcher", "kinds: research", GENERAL,
+                   "You research with live web access. Search first, read the best "
+                   "sources, then answer with the facts and cite the URLs you used.",
+                   0.3, tools=["web_search", "read_webpage"]),
+            _agent("Reasoner", "kinds: reasoning", GENERAL,
+                   "You handle multi-step logic, math, planning and careful analysis. "
+                   "Show your key steps briefly, then give a clear conclusion.", 0.3),
+            _agent("Writer", "kinds: creative", GENERAL,
+                   "You are a strong writer. Produce polished, engaging prose in the "
+                   "requested tone and format.", 0.7),
+        ],
+    },
+    {
         "name": "App Factory Pro",
         "icon": "🏗️",
         "description": "Builds a complete, RUNNING multi-file app (SQLite persistence, "

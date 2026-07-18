@@ -1084,6 +1084,65 @@ class TeamRunner:
         g.add_edge(agent["name"], END)
         return g.compile()
 
+    # ---------------- router topology ----------------
+
+    def _build_router(self):
+        """Classify the request ONCE (cheap model), dispatch to the single
+        best-suited worker, run it once, done. No supervisor loop — the point is
+        token efficiency: one classification + one specialist, not N orchestrator
+        hops re-reading growing context.
+
+        agents[1:] are the specialists. Each worker's `role` tags which task
+        KINDS it handles (router.TIER_PREFERENCE keys, comma-separated in the
+        role or system prompt); the router matches the classified kind to a
+        worker, falling back to the first worker. agents[0], if present, is
+        ignored as a slot (kept for editor symmetry with supervisor)."""
+        import router as _router
+        from providers import list_models
+        agents = self.team["agents"]
+        workers = agents[1:] if len(agents) > 1 else agents
+        g = StateGraph(TeamState)
+
+        # kind → worker: read each worker's declared kinds from a "kinds:" tag in
+        # its system prompt or role; else infer from its name/role keywords.
+        def worker_for_kind(kind: str):
+            for w in workers:
+                blob = f"{w.get('role','')} {w.get('system_prompt','')[:200]}".lower()
+                m = re.search(r"kinds?:\s*([a-z_,\s]+)", blob)
+                if m and kind in [k.strip() for k in m.group(1).split(",")]:
+                    return w
+            # keyword fallback
+            key = {"code": "cod", "code_hard": "cod", "research": "research",
+                   "reasoning": "reason", "creative": "writ", "trivial": "assist",
+                   "general": "assist"}.get(kind, "")
+            for w in workers:
+                if key and key in f"{w['name']} {w.get('role','')}".lower():
+                    return w
+            return workers[0]
+
+        def route_node(state: TeamState):
+            self._check_cancel()
+            models = list_models()
+            cls = _router.classify(state["task"], models)
+            worker = dict(worker_for_kind(cls["kind"]))
+            # Model-tier picker: run the chosen specialist on the tier-appropriate
+            # model for this kind, overriding the worker's default.
+            if cls["model"]:
+                worker["provider"], worker["model"] = cls["provider"], cls["model"]
+            # Give it the kind's tools on top of whatever it already has.
+            worker["tools"] = sorted(set((worker.get("tools") or []) + cls["tools"]))
+            self.emit("decision", agent="Router",
+                      content=(f"kind={cls['kind']} ({cls['reason']}) → {worker['name']} "
+                               f"on {worker['model']}"))
+            result = self._worker_node(worker)(state)
+            result["final"] = result["history"][-1]["content"]
+            return result
+
+        g.add_node("_route", route_node)
+        g.add_edge(START, "_route")
+        g.add_edge("_route", END)
+        return g.compile()
+
     # ---------------- run ----------------
 
     def run(self) -> str:
@@ -1096,6 +1155,8 @@ class TeamRunner:
             graph = self._build_single()
         elif topology == "supervisor":
             graph = self._build_supervisor()
+        elif topology == "router":
+            graph = self._build_router()
         else:
             graph = self._build_pipeline()
 

@@ -214,6 +214,7 @@ export default function TeamEditor({ team, wizard, onClose, onSaved }) {
             <select value={data.topology} onChange={(e) => setTopology(e.target.value)}>
               <option value="pipeline">Pipeline — agents run in order</option>
               <option value="supervisor">Supervisor — first agent delegates dynamically</option>
+              <option value="router">Router — classify once, dispatch to one specialist</option>
               <option value="graph">Custom pipeline — visual graph with branches</option>
               <option value="single">Single agent</option>
             </select>
