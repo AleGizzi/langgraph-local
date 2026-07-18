@@ -28,7 +28,7 @@ const PAGE_HINTS = {
 const SUGGESTIONS = [
   "What can this app do?",
   "How do I create a team?",
-  "How do agents deliver files?",
+  "Help me set up a scheduled task",
   "How do I free up memory?",
 ];
 
@@ -116,17 +116,18 @@ export default function HelpAssistant() {
 
   return (
     <>
-      <button className={"help-fab" + (open ? " open" : "")} title="Help assistant"
+      <button className={"help-fab" + (open ? " open" : "")} title="Calcifer — your assistant"
         onClick={() => setOpen(!open)}>
-        <PixelSprite name={open ? "close" : "squid"} size={open ? 20 : 24} color="#fff" />
+        {open ? <PixelSprite name="close" size={20} color="#fff" />
+              : <PixelSprite name="calcifer" size={30} />}
       </button>
 
       {open && (
         <div className="help-panel">
           <div className="help-head">
             <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-              <PixelSprite name="squid" size={16} color="var(--accent)" />
-              <b>Help assistant</b>
+              <PixelSprite name="calcifer" size={18} />
+              <b>Calcifer</b>
             </span>
             <span className="help-model">{cfg?.agent?.model || "…"}</span>
             <span className="spacer" style={{ flex: 1 }} />
@@ -138,7 +139,8 @@ export default function HelpAssistant() {
           <div className="help-body">
             {!messages.length && (
               <div className="help-intro">
-                Ask me anything about this app — where things are and how to use them.
+                🔥 I'm <b>Calcifer</b>. Ask me anything about this app — where
+                things are, how to use them, or how to set up a scheduled task.
                 <div className="help-suggestions">
                   {SUGGESTIONS.map((s) => (
                     <button key={s} className="help-sugg" onClick={() => ask(s)}>{s}</button>
