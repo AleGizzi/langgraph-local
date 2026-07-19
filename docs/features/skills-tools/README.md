@@ -16,6 +16,7 @@ skill- and tool-drafting (the team-drafting half lives in
 | Path | Role |
 |------|------|
 | `tools.py` | Builtin tools, `TOOL_CATALOG`, `custom_tools/*.py` loader, `validate_tool_code`, `resolve_tools` (name → LangChain tool objects, expands bundles). |
+| `mcp_client.py` | MCP bridge: runs external MCP servers (async, subprocess) and exposes their tools to the sync tool loop. Backs the `browser` bundle (`browser_open`/`browser_snapshot`) via `@playwright/mcp`. Lazy-started; see `docs/extending.md` § Add an MCP-backed tool. |
 | `wizard.py` | `draft_skill`, `draft_tool` (team drafting documented separately). |
 | `app.py` | `/api/skills` CRUD, `/api/tools*` routes, `POST /api/wizard` (`kind: skill\|tool`). |
 | `storage.py` | `skills` table. |

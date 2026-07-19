@@ -32,6 +32,26 @@ Tools are functions agents can call. Built-ins live in `tools.py`.
 functions into `custom_tools/` (or use the in-app wizard). It's auto-discovered by
 `load_custom_tools()` with per-file error isolation — a broken file never breaks the app.
 
+## Add an MCP-backed tool
+
+To expose an external [MCP](https://modelcontextprotocol.io) server's tools instead of
+writing them yourself, use `mcp_client.py`. It runs each MCP server on its own asyncio
+loop in a daemon thread, keeps the session alive across calls, and bridges the async
+`call_tool` to this app's **synchronous** tool loop (`fn.invoke(dict)`).
+
+1. Add a server factory like `_playwright_server()` — an `_MCPServer(key, command, args)`
+   singleton. It **must not start on import**; it starts lazily on the first `.call()`.
+2. Write a small, **curated** set of `@tool`/`StructuredTool` wrappers whose functions call
+   `srv.call("<mcp_tool_name>", {...})`. Do **not** auto-expose the server's whole tool
+   surface — local 7B–14B models mis-select from large tool sets (same lesson as the
+   router). The `browser` bundle wraps ~25 Playwright tools down to 2 (`browser_open`,
+   `browser_snapshot`).
+3. Register the bundle in `TOOL_CATALOG` + `resolve_tools` in `tools.py`, **lazy-importing**
+   `mcp_client` inside the `resolve_tools` branch so safe imports never touch it.
+4. If the server is a Node package (like `@playwright/mcp`), pin a version compatible with
+   this machine's Node (currently 18 → `@playwright/mcp@0.0.29`, override via
+   `PLAYWRIGHT_MCP_SPEC`). Return a friendly string, never raise, when `npx` is missing.
+
 ## Add a skill
 
 Skills are prompt-instruction blocks, stored in the DB. No code needed to create one —

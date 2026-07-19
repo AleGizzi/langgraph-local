@@ -120,6 +120,15 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   read_webpage. run_python executes real code from the run workspace, so only
   enable it on agents you trust. The "files" tool is a bundle: write_file,
   edit_file, read_file, list_files.
+- **Real browser (MCP)**: the "browser" tool gives an agent a REAL headless
+  Chromium via an MCP server (Playwright), so it can read JavaScript-rendered
+  pages that read_webpage (a plain HTTP fetch) can't see — single-page apps,
+  content loaded after scripts run. It's a bundle: browser_open (open a URL and
+  read the rendered page) and browser_snapshot (re-read the current page).
+  Enable it on any agent from the tool picker. Needs Node 18+; the first use
+  downloads the browser. This is the app's first Model Context Protocol
+  integration — MCP lets you plug in maintained external tool servers instead
+  of hand-writing every tool.
 - **Build teams that prove their output works** (all on the Studio page, all take
   a one-line idea and take 10-20 min on a local 7B):
   * Flask App Factory — a Flask web app; the Verifier runs a smoke test with

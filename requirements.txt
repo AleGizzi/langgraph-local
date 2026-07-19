@@ -20,3 +20,7 @@ scipy
 manifold3d
 psutil
 imageio-ffmpeg
+# MCP client — bridges Model Context Protocol servers into the tool loop.
+# The `browser` tool drives @playwright/mcp (a Node package run via npx);
+# needs Node 18+ and, on first use, `npx playwright@1.53.0 install chromium`.
+mcp>=1.0

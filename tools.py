@@ -768,6 +768,7 @@ TOOL_CATALOG = {
     "files": "Read/write files in the run workspace",
     "knowledge": "Search/read/write the shared knowledge vault",
     "generate_image": "Generate an image locally (needs Fooocus running)",
+    "browser": "Drive a REAL headless browser (reads JS-rendered pages) via Playwright MCP",
 }
 
 CUSTOM_TOOLS_DIR = os.environ.get(
@@ -953,6 +954,12 @@ def resolve_tools(names: list, workspace: str) -> list:
             tools.extend([knowledge_search, knowledge_read, knowledge_write])
         elif n == "generate_image":
             tools.append(generate_image)
+        elif n == "browser":
+            # Lazy import: only pull the MCP bridge in when a run actually
+            # requests the browser, so safe imports never touch it and no
+            # Chromium starts until the first browser_open call.
+            from mcp_client import browser_tools
+            tools.extend(browser_tools())
         elif n in custom_by_name:
             tools.append(custom_by_name[n])
     return tools
