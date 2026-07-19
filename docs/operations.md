@@ -9,11 +9,11 @@ Local Agents Studio is a Flask + LangGraph web app for orchestrating multi-agent
 - **Python 3.10+** (venv will be created automatically)
 - **Node 20+** — needed to rebuild the React frontend, and required by the
   `browser` tool's MCP server (`@playwright/mcp@latest`). On this machine Node
-  22 LTS is installed user-locally at `~/.local/lib/nodejs` with `node`/`npm`/
-  `npx` symlinked into `~/.local/bin` (first on PATH, shadowing the distro's
-  Node 18 — no sudo, no apt changes). To run the browser tool on Node 18
-  instead, set `PLAYWRIGHT_MCP_SPEC=@playwright/mcp@0.0.29`. First browser use
-  downloads Chromium (`npx playwright install chromium`).
+  22 LTS is installed system-wide in `/usr/local` (extracted from the official
+  tarball; `/usr/local/bin/node`, ahead of the distro's Node 18 in `/usr/bin`,
+  which stays as a fallback). To run the browser tool on Node 18 instead, set
+  `PLAYWRIGHT_MCP_SPEC=@playwright/mcp@0.0.29`. First browser use downloads
+  Chromium (`npx playwright install chromium`).
 - **Ollama** (http://localhost:11434) or **LM Studio** (http://localhost:1234)
   - At least one must be running, or reachable at custom `OLLAMA_URL` / `LMSTUDIO_URL`
   - Download: [Ollama](https://ollama.ai) | [LM Studio](https://lmstudio.ai)
@@ -123,6 +123,12 @@ The `docker-compose.yml` defines:
 - **ollama**: Official Ollama image with persistent model storage
 
 Both services restart automatically unless stopped manually.
+
+The app image bundles **Node 22** (copied from `node:22-slim`) and **Playwright
+Chromium + its OS libraries**, so the `browser` tool works inside the container
+with no extra setup. That browser layer adds ~400MB; if you never use the
+`browser` tool, delete the `playwright ... install --with-deps chromium` block
+in the Dockerfile to slim the image.
 
 ### Stop and Restart
 

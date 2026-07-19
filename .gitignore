@@ -6,3 +6,6 @@ data/
 .DS_Store
 node_modules/
 static/dist/
+
+# Playwright MCP writes per-session page snapshots here
+.playwright-mcp/
