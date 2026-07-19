@@ -38,8 +38,10 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
 - **Schedules** (#/schedules): run an agent unattended on an interval (daily
   web check, tracked metric, recurring research). Optionally track a number
   from each result and chart its evolution, or save findings to a knowledge
-  folder. Runs only while the app is on (keep it running / use the systemd
-  service or desktop app for 24/7).
+  folder. Each schedule card leads with the agent's latest MESSAGE (the
+  timestamp is small, below it); when a run saved a knowledge note, a "📄 Read
+  the saved note →" link opens it directly. Runs only while the app is on (keep
+  it running / use the systemd service or desktop app for 24/7).
 - **AI News** (#/resources): curated links on AI news, running local LLMs,
   and open-source tools, in three tabs. "Refresh with agent" runs a
   web-researching agent to find fresh links for the current tab; you can

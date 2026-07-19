@@ -141,7 +141,7 @@ export default function App() {
   else if (route.page === "settings") view = <Settings />;
   else if (route.page === "toolbox") view = <Toolbox />;
   else if (route.page === "chat") view = <Chat personaId={route.id ? +route.id : null} key={route.id || "chat"} />;
-  else if (route.page === "knowledge") view = <Knowledge />;
+  else if (route.page === "knowledge") view = <Knowledge openNote={route.id} />;
   else if (route.page === "schedules") view = <Schedules />;
   else if (route.page === "resources") view = <Resources />;
   else if (route.page === "guide") view = <Guide />;

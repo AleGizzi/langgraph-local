@@ -117,7 +117,8 @@ CREATE TABLE IF NOT EXISTS schedule_runs (
     result TEXT,
     value REAL,
     log TEXT,
-    run_id INTEGER
+    run_id INTEGER,
+    note_path TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sched_runs ON schedule_runs(schedule_id, ran_at);
 CREATE TABLE IF NOT EXISTS resources (
@@ -232,13 +233,14 @@ def delete_schedule(sid: int):
 
 
 def add_schedule_run(sid: int, ok: bool, result: str, value=None,
-                     log: str = None, run_id: int = None) -> int:
+                     log: str = None, run_id: int = None,
+                     note_path: str = None) -> int:
     with _conn() as c:
         cur = c.execute(
-            "INSERT INTO schedule_runs (schedule_id, ran_at, ok, result, value, log, run_id)"
-            " VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO schedule_runs (schedule_id, ran_at, ok, result, value, log, run_id, note_path)"
+            " VALUES (?,?,?,?,?,?,?,?)",
             (sid, time.time(), int(bool(ok)), (result or "")[:8000], value,
-             (log or "")[:40000] or None, run_id))
+             (log or "")[:40000] or None, run_id, note_path))
         return cur.lastrowid
 
 
@@ -252,7 +254,8 @@ def list_schedule_runs(sid: int, limit: int = 200, with_log: bool = False) -> li
         keys = r.keys()
         d = {"id": r["id"], "ran_at": r["ran_at"], "ok": bool(r["ok"]),
              "result": r["result"], "value": r["value"],
-             "run_id": r["run_id"] if "run_id" in keys else None}
+             "run_id": r["run_id"] if "run_id" in keys else None,
+             "note_path": r["note_path"] if "note_path" in keys else None}
         if with_log:
             d["log"] = r["log"] if "log" in keys else None
         out.append(d)
@@ -264,9 +267,11 @@ def get_schedule_run(rid: int):
         r = c.execute("SELECT * FROM schedule_runs WHERE id=?", (rid,)).fetchone()
     if not r:
         return None
+    keys = r.keys()
     return {"id": r["id"], "schedule_id": r["schedule_id"], "ran_at": r["ran_at"],
             "ok": bool(r["ok"]), "result": r["result"], "value": r["value"],
-            "log": r["log"], "run_id": r["run_id"]}
+            "log": r["log"], "run_id": r["run_id"],
+            "note_path": r["note_path"] if "note_path" in keys else None}
 
 
 # ---------------- resources (AI news / trainings) ----------------
@@ -361,6 +366,8 @@ def init_db():
             c.execute("ALTER TABLE schedule_runs ADD COLUMN log TEXT")
         if srcols and "run_id" not in srcols:
             c.execute("ALTER TABLE schedule_runs ADD COLUMN run_id INTEGER")
+        if srcols and "note_path" not in srcols:
+            c.execute("ALTER TABLE schedule_runs ADD COLUMN note_path TEXT")
 
 
 def _team_row_to_dict(r) -> dict:

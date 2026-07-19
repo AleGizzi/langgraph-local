@@ -302,11 +302,11 @@ function VaultGraph({ folders, onOpen }) {
   );
 }
 
-export default function Knowledge() {
+export default function Knowledge({ openNote }) {
   const [data, setData] = useState(null);
   const [folders, setFolders] = useState([]);
   const [q, setQ] = useState("");
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(openNote || null);
   const [noteText, setNoteText] = useState("");
   const [editing, setEditing] = useState(false);
   const [view, setView] = useState("list"); // list | graph
@@ -318,6 +318,9 @@ export default function Knowledge() {
     api("/knowledge/folders").then((d) => setFolders(d.folders || [])).catch(() => {});
   };
   useEffect(() => { load(); }, []);
+  // Deep link: #/knowledge/<encoded path> opens that note directly (e.g. from a
+  // schedule's "Read the saved note" link).
+  useEffect(() => { if (openNote) setSelected(openNote); }, [openNote]);
 
   useEffect(() => {
     if (!selected) { setNoteText(""); return; }

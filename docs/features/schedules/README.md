@@ -45,6 +45,16 @@ the systemd user service or the desktop app (`docs/operations.md`) for 24/7.
 - `knowledge_folder`: the agent is given the `knowledge` tool (if absent) and
   the prompt is appended with an instruction to save its finding as a dated
   note in that folder — a daily check builds a real Obsidian-readable log.
+  When a run saves a note, `scheduler._NOTE_RE` scrapes the `knowledge_write`
+  tool result ("Saved as <path>") and stores it on the run as `note_path`
+  (column added to `schedule_runs`). The UI turns it into a "📄 Read the saved
+  note →" deep link (`#/knowledge/<encodeURIComponent(path)>`, opened via the
+  `Knowledge` page's `openNote` prop), and the finish notification links to the
+  note rather than the run when one exists. Only runs after this shipped have a
+  `note_path`; older runs show no link.
+- Message-first cards: the card shows the agent's latest result body as the
+  focus; the timestamp is small muted meta. Run-history rows and the run-log
+  modal lead with the message too (date/time demoted).
 
 
 ## Scheduling a TEAM (not just an agent)

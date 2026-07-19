@@ -7,7 +7,13 @@ Local Agents Studio is a Flask + LangGraph web app for orchestrating multi-agent
 ### Prerequisites
 
 - **Python 3.10+** (venv will be created automatically)
-- **Node 18+** (optional; only needed if you modify the React frontend)
+- **Node 20+** — needed to rebuild the React frontend, and required by the
+  `browser` tool's MCP server (`@playwright/mcp@latest`). On this machine Node
+  22 LTS is installed user-locally at `~/.local/lib/nodejs` with `node`/`npm`/
+  `npx` symlinked into `~/.local/bin` (first on PATH, shadowing the distro's
+  Node 18 — no sudo, no apt changes). To run the browser tool on Node 18
+  instead, set `PLAYWRIGHT_MCP_SPEC=@playwright/mcp@0.0.29`. First browser use
+  downloads Chromium (`npx playwright install chromium`).
 - **Ollama** (http://localhost:11434) or **LM Studio** (http://localhost:1234)
   - At least one must be running, or reachable at custom `OLLAMA_URL` / `LMSTUDIO_URL`
   - Download: [Ollama](https://ollama.ai) | [LM Studio](https://lmstudio.ai)

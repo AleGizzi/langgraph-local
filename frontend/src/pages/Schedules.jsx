@@ -61,16 +61,21 @@ function RunLog({ runId, onClose }) {
         <div className="modal-body">
           {!data ? <div className="help">Loading…</div> : (
             <>
-              {data.run_id && (
-                <a className="btn sm" href={`#/run/${data.run_id}`} onClick={onClose}
-                  style={{ marginBottom: 10 }}>🗂️ Open full team run #{data.run_id} →</a>
-              )}
-              <div className="field"><label>Execution log</label>
-                <textarea rows={12} readOnly value={data.log || "(no log captured)"}
-                  style={{ fontFamily: "var(--mono)", fontSize: 12 }} /></div>
               <div className="field"><label>Result</label>
-                <textarea rows={6} readOnly value={data.result || ""}
-                  style={{ fontSize: 12.5 }} /></div>
+                <div className="sched-log-result">{data.result || "(no result)"}</div></div>
+              <div className="sched-log-links">
+                {data.note_path && (
+                  <a className="btn sm primary" href={`#/knowledge/${encodeURIComponent(data.note_path)}`}
+                    onClick={onClose}>📄 Read the saved note →</a>
+                )}
+                {data.run_id && (
+                  <a className="btn sm" href={`#/run/${data.run_id}`} onClick={onClose}>
+                    🗂️ Open full team run #{data.run_id} →</a>
+                )}
+              </div>
+              <div className="field"><label>Execution log (for debugging)</label>
+                <textarea rows={10} readOnly value={data.log || "(no log captured)"}
+                  style={{ fontFamily: "var(--mono)", fontSize: 12 }} /></div>
             </>
           )}
         </div>
@@ -304,12 +309,25 @@ export default function Schedules() {
             </div>
             <div className="sched-prompt">{s.prompt}</div>
             {s.track_number && <Sparkline runs={s.runs} />}
-            {s.last_result && (
-              <div className="sched-last">
-                <b>Latest result</b> ({fmtWhen(s.last_run)}): {s.last_result.slice(0, 400)}
-                {s.last_result.length > 400 && "…"}
-              </div>
-            )}
+            {s.last_result && (() => {
+              const latest = s.runs.length ? s.runs[s.runs.length - 1] : null;
+              const note = latest?.note_path;
+              return (
+                <div className="sched-last">
+                  <div className="sched-last-body">
+                    {s.last_result.slice(0, 600)}{s.last_result.length > 600 && "…"}
+                  </div>
+                  <div className="sched-last-meta">
+                    <span className="sched-when">🕓 {fmtWhen(s.last_run)}</span>
+                    {note && (
+                      <a className="sched-note-link" href={`#/knowledge/${encodeURIComponent(note)}`}>
+                        📄 Read the saved note →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
             {s.runs.length > 0 && (
               <button className="btn sm ghost" style={{ padding: "3px 8px", marginTop: 6 }}
                 onClick={() => setExpanded((e) => ({ ...e, [s.id]: !e[s.id] }))}>
@@ -320,12 +338,20 @@ export default function Schedules() {
               <div className="sched-history">
                 {[...s.runs].reverse().map((r) => (
                   <div key={r.id} className="sched-run">
-                    <span>{r.ok ? "✅" : "⚠️"}</span>
-                    <span className="sched-run-time">{fmtWhen(r.ran_at)}</span>
-                    {r.value != null && <span className="chip">{r.value}</span>}
-                    <span className="sched-run-result">{(r.result || "").slice(0, 120)}</span>
-                    <button className="btn sm ghost" style={{ padding: "1px 7px", marginLeft: "auto", flexShrink: 0 }}
-                      onClick={() => setLogRun(r.id)}>📋 log</button>
+                    <div className="sched-run-body">
+                      {(r.result || "").slice(0, 280)}{(r.result || "").length > 280 && "…"}
+                    </div>
+                    <div className="sched-run-meta">
+                      <span>{r.ok ? "✅" : "⚠️"}</span>
+                      <span className="sched-run-time">{fmtWhen(r.ran_at)}</span>
+                      {r.value != null && <span className="chip">{r.value}</span>}
+                      {r.note_path && (
+                        <a className="sched-run-note" title="Read the saved note"
+                          href={`#/knowledge/${encodeURIComponent(r.note_path)}`}>📄 note</a>
+                      )}
+                      <button className="btn sm ghost" style={{ padding: "1px 7px", marginLeft: "auto", flexShrink: 0 }}
+                        onClick={() => setLogRun(r.id)}>📋 log</button>
+                    </div>
                   </div>
                 ))}
               </div>

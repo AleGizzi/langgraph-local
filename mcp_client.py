@@ -174,7 +174,9 @@ def _playwright_server() -> _MCPServer:
             # Version pin: 0.0.29 bundles Playwright 1.53, the last line that
             # still supports this machine's Node 18. Newer @playwright/mcp needs
             # Node 20+. Bump the pin if/when Node is upgraded.
-            spec = os.environ.get("PLAYWRIGHT_MCP_SPEC", "@playwright/mcp@0.0.29")
+            # @latest needs Node 20+ (this machine now runs Node 22). If you must
+            # run on Node 18 again, override with PLAYWRIGHT_MCP_SPEC=@playwright/mcp@0.0.29.
+            spec = os.environ.get("PLAYWRIGHT_MCP_SPEC", "@playwright/mcp@latest")
             # --browser chromium: use Playwright's bundled Chromium build (which
             # we install), NOT the "chrome" channel it defaults to (that expects
             # a system Google Chrome at /opt/google/chrome and isn't present).
