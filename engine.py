@@ -172,6 +172,31 @@ def salvage_tool_calls(content: str, tool_names) -> list:
     return calls
 
 
+# Blast radius: tools that change files on the real machine or execute arbitrary
+# code — irreversible / consequential, unlike the sandboxed workspace file tools.
+_DESTRUCTIVE_TOOLS = {"run_python", "sys_write_file", "sys_edit_file"}
+
+
+def blast_radius_block(name: str, unattended: bool = False,
+                       allow_destructive: bool = False, mode: str = "balanced"):
+    """Return a refusal string if a destructive tool call should be BLOCKED, else
+    None. Route on consequence, not difficulty: a destructive action must never
+    run unattended without pre-authorization, and 'max-savings' (smallest model)
+    never performs irreversible actions. Explicit allow_destructive overrides."""
+    if name not in _DESTRUCTIVE_TOOLS or allow_destructive:
+        return None
+    if unattended:
+        return (f"[Blast-radius gate] '{name}' can change real files or run code, and "
+                "this is an UNATTENDED (scheduled) run — no one is here to approve it, "
+                "so it was refused. Describe what you WOULD do instead; the owner can "
+                "enable 'allow destructive actions' on the schedule to permit it.")
+    if mode == "max-savings":
+        return (f"[Blast-radius gate] '{name}' is an irreversible action and this run "
+                "is in max-savings mode (smallest model), which never performs "
+                "destructive actions. Refused — re-run in Balanced or Quality mode.")
+    return None
+
+
 class RunCancelled(Exception):
     pass
 
@@ -294,10 +319,12 @@ def _spawned_agent_events(tool_name: str, result: str) -> list:
     return events
 
 
-def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
+def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict,
+                unattended: bool = False, allow_destructive: bool = False):
     """Generator for the Chat page: yields event dicts for one assistant turn.
 
     `messages` is the prior conversation: [{role: 'user'|'assistant', content}].
+    unattended/allow_destructive drive the blast-radius gate for scheduled runs.
     Supports the same tool loop as team runs, bounded by MAX_TOOL_ROUNDS.
     """
     from langchain_core.messages import AIMessage as AIM
@@ -441,10 +468,15 @@ def chat_stream(agent: dict, messages: list, workspace: str, skill_map: dict):
             yield {"type": "tool_call",
                    "content": f"{name}({json.dumps(args, ensure_ascii=False)[:300]})"}
             fn = tool_map.get(name)
-            try:
-                result = fn.invoke(args) if fn else f"Unknown tool {name}"
-            except Exception as e:  # noqa: BLE001
-                result = f"Tool error: {e}"
+            br = blast_radius_block(name, unattended, allow_destructive)
+            if br:
+                result = br
+                yield {"type": "blast_radius", "content": f"BLOCKED {name}"}
+            else:
+                try:
+                    result = fn.invoke(args) if fn else f"Unknown tool {name}"
+                except Exception as e:  # noqa: BLE001
+                    result = f"Tool error: {e}"
             spawned = _spawned_agent_events(name, str(result))
             if spawned:
                 for ev in spawned:
@@ -477,7 +509,8 @@ class TeamRunner:
 
     def __init__(self, team: dict, task: str, workspace: str, emit, cancel_event,
                  max_concurrency: int = 1, run_id: int = None,
-                 mode: str = "balanced"):
+                 mode: str = "balanced", unattended: bool = False,
+                 allow_destructive: bool = False):
         self.team = team
         self.task = task
         self.workspace = workspace
@@ -485,6 +518,8 @@ class TeamRunner:
         self.cancel = cancel_event
         self.run_id = run_id
         self.mode = mode
+        self.unattended = unattended
+        self.allow_destructive = allow_destructive
         self._decisions = []            # rows for the decision log (flushed at end)
         self.agents = {a["name"]: a for a in team["agents"]}
         self.settings = team.get("settings", {})
@@ -719,7 +754,24 @@ class TeamRunner:
                 seen_calls[sig] = seen_calls.get(sig, 0) + 1
                 fn = tool_map.get(name)
 
-                if seen_calls[sig] > 2 and name not in ("write_file", "edit_file",
+                br = blast_radius_block(name, self.unattended,
+                                        self.allow_destructive, self.mode)
+                if br:
+                    result = br
+                    self.emit("blast_radius", agent=agent["name"],
+                              content=f"BLOCKED {name} — {'unattended' if self.unattended else self.mode}",
+                              meta={"tool": name, "blocked": True})
+                    if self.unattended:
+                        try:
+                            import notifications
+                            notifications.send(
+                                f"🛑 Blocked a destructive action ({name})",
+                                f"Scheduled run of “{self.team.get('name')}” tried to run "
+                                f"{name} unattended. Enable 'allow destructive actions' to permit.",
+                                level="critical", source="blast-radius", link="#/schedules")
+                        except Exception:  # noqa: BLE001
+                            pass
+                elif seen_calls[sig] > 2 and name not in ("write_file", "edit_file",
                                                         "read_file", "list_files"):
                     # Enforced, not advised: a 7B told "stop repeating" repeats
                     # anyway (run 60 re-ran the same failing test 11 times). The

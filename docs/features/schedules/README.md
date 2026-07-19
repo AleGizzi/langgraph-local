@@ -55,6 +55,12 @@ the systemd user service or the desktop app (`docs/operations.md`) for 24/7.
 - Message-first cards: the card shows the agent's latest result body as the
   focus; the timestamp is small muted meta. Run-history rows and the run-log
   modal lead with the message too (date/time demoted).
+- `allow_destructive` (column on `schedules`, default 0): scheduled runs are
+  UNATTENDED, so the engine's blast-radius gate (`engine.blast_radius_block`)
+  refuses destructive tools (`run_python`, `sys_write_file`, `sys_edit_file`)
+  unless this is ticked. `scheduler._run_team`/`_run_agent` pass
+  `unattended=True` + this flag into `runmanager.start` / `engine.chat_stream`.
+  A blocked action raises a critical notification.
 
 
 ## Scheduling a TEAM (not just an agent)

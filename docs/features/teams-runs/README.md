@@ -223,3 +223,28 @@ LangGraph's default recursion ceiling.
 6. Verify file delivery: run the seeded `Code Squad` team, then
    `GET /api/runs/<id>/artifacts` and confirm files beyond
    `final_output.md`, and that `/artifacts.zip` downloads them all.
+
+## Efficiency & safety mechanics (framework-inspired)
+
+Adapted from the portable agent-team framework to this local, no-billing world
+(the budget is VRAM/latency/context, not dollars):
+
+- **Run modes** (`modes.py`): `max-savings | balanced | quality` per run. Shifts
+  each agent's model along its OWN family's installed size ladder (never across
+  families; balanced = no-op). Applied in `runmanager._execute` to a team COPY
+  (never mutates the stored team); the picker is on the team run page; `POST
+  /api/teams/<id>/runs` takes `mode`.
+- **Decision log** (`storage.decisions`, `engine._record_decision`): one row per
+  agent turn with outcome (accepted/rebriefed/escalated/failed) auto-derived
+  from the quality-loop reviewer verdict + verification gate + revision count.
+  `GET /api/decisions` → accept/escalate rate per model+role; the Agents
+  dashboard renders it. Evidence for tuning `router.TIER_PREFERENCE` and team
+  model choices — only `escalated` justifies a tier bump (rebriefed = prompt).
+- **Scratchpad discipline** (`engine._context_block`): above
+  `settings.context_budget` chars (default 16000) a bulky handoff is saved to
+  `workspace/scratch/handoff-N.md` and the next agent gets a trimmed view (last
+  output kept fullest) + a pointer. Below budget it's the old behavior verbatim.
+- **Blast-radius gate** (`engine.blast_radius_block`): `run_python`,
+  `sys_write_file`, `sys_edit_file` are refused on unattended runs (unless the
+  schedule allows) and in max-savings mode. Threaded via `unattended` /
+  `allow_destructive` on `TeamRunner` and `chat_stream`.

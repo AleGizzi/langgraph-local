@@ -92,6 +92,7 @@ function ScheduleEditor({ schedule, onClose, onSaved }) {
   const [interval, setInterval] = useState(schedule?.interval_seconds || 86400);
   const [track, setTrack] = useState(schedule?.track_number || false);
   const [notify, setNotify] = useState(schedule?.notify || false);
+  const [allowDestructive, setAllowDestructive] = useState(schedule?.allow_destructive || false);
   const [folder, setFolder] = useState(schedule?.knowledge_folder || "");
   const [mode, setMode] = useState(schedule?.team_id ? "team" : "agent");
   const [teamId, setTeamId] = useState(schedule?.team_id || "");
@@ -137,6 +138,7 @@ function ScheduleEditor({ schedule, onClose, onSaved }) {
     const body = {
       name: name || prompt.slice(0, 40), prompt,
       interval_seconds: interval, track_number: track, notify,
+      allow_destructive: allowDestructive,
       knowledge_folder: folder.trim() || null,
       team_id: mode === "team" ? +teamId : null,
       agent: mode === "agent" ? agent : {},
@@ -186,9 +188,16 @@ function ScheduleEditor({ schedule, onClose, onSaved }) {
             <input type="checkbox" checked={track} onChange={(e) => setTrack(e.target.checked)} />
             📈 Track a number — extract the first number from each result and chart its evolution
           </label>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", margin: "0 0 10px" }}>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer", margin: "0 0 6px" }}>
             <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
             🔔 Notify me when it finishes — a desktop popup + the in-app bell
+          </label>
+          <label style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", margin: "0 0 10px" }}>
+            <input type="checkbox" checked={allowDestructive} style={{ marginTop: 3 }}
+              onChange={(e) => setAllowDestructive(e.target.checked)} />
+            <span>🛑 Allow destructive actions — let this unattended run execute code
+              (<code>run_python</code>) and edit real project files. Off by default: the
+              blast-radius gate blocks those while no one is watching.</span>
           </label>
 
           {mode === "team" ? (

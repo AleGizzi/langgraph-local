@@ -122,6 +122,21 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
   read_webpage. run_python executes real code from the run workspace, so only
   enable it on agents you trust. The "files" tool is a bundle: write_file,
   edit_file, read_file, list_files.
+- **Run modes (speed vs quality)**: the team run page has a mode picker —
+  ⚡ Max savings, ⚖️ Balanced, 💎 Quality. It shifts every agent's model along
+  its own family's installed size ladder (e.g. qwen2.5-coder:7b → :3b for
+  savings, → :14b for quality); Balanced runs the team as configured. One team,
+  three tiers, no duplicate configs.
+- **Decision log**: the Agents dashboard shows a "Model performance" table —
+  how each model does on the role it's given, from real team runs (accept vs
+  escalate rate). Outcomes are derived automatically from the quality-loop
+  reviewer's verdict and the verification gate. A high escalate rate is the
+  evidence to move that role up to a bigger model.
+- **Blast-radius gate**: destructive tools (run_python, editing real project
+  files) are refused on UNATTENDED scheduled runs unless the schedule ticks
+  "Allow destructive actions", and are refused in Max-savings mode (the smallest
+  model never does irreversible things). Interactive Balanced/Quality runs are
+  unaffected. A blocked scheduled action raises a notification.
 - **Real browser (MCP)**: the "browser" tool gives an agent a REAL headless
   Chromium via an MCP server (Playwright), so it can read JavaScript-rendered
   pages that read_webpage (a plain HTTP fetch) can't see — single-page apps,

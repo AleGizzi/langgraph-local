@@ -67,7 +67,9 @@ def _run_team(sch: dict, prompt: str):
     team = storage.get_team(sch["team_id"])
     if not team:
         return "", f"team {sch['team_id']} no longer exists", "", None
-    run_id = runmanager.manager.start(team, prompt)
+    run_id = runmanager.manager.start(
+        team, prompt, unattended=True,
+        allow_destructive=bool(sch.get("allow_destructive")))
     note_path = None
     log = [f"[{_fmt_ts()}] team run #{run_id} started ({team['name']})"]
     # Wait for the run thread to finish (bounded — a scheduled run shouldn't
@@ -120,7 +122,8 @@ def _run_agent(sch: dict, prompt: str):
     final, err, note_path = "", None, None
     try:
         for ev in engine.chat_stream(agent, [{"role": "user", "content": prompt}],
-                                     _WORKSPACE, skill_map):
+                                     _WORKSPACE, skill_map, unattended=True,
+                                     allow_destructive=bool(sch.get("allow_destructive"))):
             t = ev.get("type")
             if t == "tool_call":
                 log.append(f"[tool_call] {ev.get('content', '')[:160]}")

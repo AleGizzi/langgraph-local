@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS schedules (
     enabled INTEGER NOT NULL DEFAULT 1,
     track_number INTEGER NOT NULL DEFAULT 0,
     knowledge_folder TEXT,
+    allow_destructive INTEGER NOT NULL DEFAULT 0,
     last_run REAL,
     last_result TEXT,
     next_run REAL,
@@ -190,6 +191,7 @@ def _schedule_row(r) -> dict:
             "interval_seconds": r["interval_seconds"], "enabled": bool(r["enabled"]),
             "track_number": bool(r["track_number"]),
             "notify": bool(r["notify"]) if "notify" in keys else False,
+            "allow_destructive": bool(r["allow_destructive"]) if "allow_destructive" in keys else False,
             "knowledge_folder": r["knowledge_folder"],
             "last_run": r["last_run"], "last_result": r["last_result"],
             "next_run": r["next_run"], "created_at": r["created_at"]}
@@ -212,13 +214,15 @@ def create_schedule(d: dict) -> dict:
     with _conn() as c:
         cur = c.execute(
             "INSERT INTO schedules (name, prompt, agent, team_id, interval_seconds,"
-            " enabled, track_number, notify, knowledge_folder, next_run, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " enabled, track_number, notify, allow_destructive, knowledge_folder,"
+            " next_run, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (d.get("name", "Scheduled task"), d.get("prompt", ""),
              json.dumps(d.get("agent", {})), d.get("team_id"),
              int(d.get("interval_seconds", 86400)),
              int(bool(d.get("enabled", True))), int(bool(d.get("track_number", False))),
-             int(bool(d.get("notify", False))), d.get("knowledge_folder"), now, now))
+             int(bool(d.get("notify", False))), int(bool(d.get("allow_destructive", False))),
+             d.get("knowledge_folder"), now, now))
         sid = cur.lastrowid
     return get_schedule(sid)
 
@@ -232,10 +236,12 @@ def update_schedule(sid: int, d: dict):
         c.execute(
             "UPDATE schedules SET name=?, prompt=?, agent=?, team_id=?,"
             " interval_seconds=?, enabled=?, track_number=?, notify=?,"
-            " knowledge_folder=?, last_run=?, last_result=?, next_run=? WHERE id=?",
+            " allow_destructive=?, knowledge_folder=?, last_run=?, last_result=?,"
+            " next_run=? WHERE id=?",
             (m["name"], m["prompt"], json.dumps(m["agent"]), m.get("team_id"),
              int(m["interval_seconds"]), int(bool(m["enabled"])),
              int(bool(m["track_number"])), int(bool(m.get("notify"))),
+             int(bool(m.get("allow_destructive"))),
              m.get("knowledge_folder"), m.get("last_run"), m.get("last_result"),
              m.get("next_run"), sid))
     return get_schedule(sid)
@@ -429,6 +435,8 @@ def init_db():
             c.execute("ALTER TABLE schedules ADD COLUMN team_id INTEGER")
         if scols and "notify" not in scols:
             c.execute("ALTER TABLE schedules ADD COLUMN notify INTEGER NOT NULL DEFAULT 0")
+        if scols and "allow_destructive" not in scols:
+            c.execute("ALTER TABLE schedules ADD COLUMN allow_destructive INTEGER NOT NULL DEFAULT 0")
         srcols = {r["name"] for r in c.execute("PRAGMA table_info(schedule_runs)")}
         if srcols and "log" not in srcols:
             c.execute("ALTER TABLE schedule_runs ADD COLUMN log TEXT")

@@ -74,13 +74,16 @@ class RunManager:
         with self._lock:
             return self._runs.get(run_id)
 
-    def start(self, team: dict, task: str, mode: str = "balanced") -> int:
+    def start(self, team: dict, task: str, mode: str = "balanced",
+              unattended: bool = False, allow_destructive: bool = False) -> int:
         run_id = storage.create_run(team["id"], team["name"], task)
         active = ActiveRun(run_id)
         with self._lock:
             self._runs[run_id] = active
-        t = threading.Thread(target=self._execute, args=(active, team, task, mode),
-                             daemon=True, name=f"run-{run_id}")
+        t = threading.Thread(
+            target=self._execute,
+            args=(active, team, task, mode, unattended, allow_destructive),
+            daemon=True, name=f"run-{run_id}")
         t.start()
         return run_id
 
@@ -92,7 +95,8 @@ class RunManager:
         return False
 
     def _execute(self, active: ActiveRun, team: dict, task: str,
-                 mode: str = "balanced"):
+                 mode: str = "balanced", unattended: bool = False,
+                 allow_destructive: bool = False):
         run_id = active.run_id
         workspace = os.path.join(WORKSPACES, str(run_id))
         os.makedirs(workspace, exist_ok=True)
@@ -126,7 +130,8 @@ class RunManager:
                  meta={"team": team["name"], "topology": team.get("topology"),
                        "concurrency": concurrency, "mode": mode})
             runner = TeamRunner(team, task, workspace, emit, active.cancel_event,
-                                max_concurrency=concurrency, run_id=run_id, mode=mode)
+                                max_concurrency=concurrency, run_id=run_id, mode=mode,
+                                unattended=unattended, allow_destructive=allow_destructive)
             final = runner.run()
             # Save the deliverable as an artifact automatically.
             try:
