@@ -27,7 +27,7 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from providers import LLM_IDLE_TIMEOUT, make_llm
-from tools import resolve_tools
+from tools import _head, _tail, resolve_tools
 
 # One fix cycle for a verifying agent costs three rounds (run → read → write), so
 # a budget of 5 could not complete two attempts and the agent silently gave up
@@ -800,6 +800,55 @@ class TeamRunner:
             )
         return base + rules
 
+    def _write_scratch(self, prefix: str, text: str) -> str:
+        """Persist bulky text to workspace/scratch/, return a workspace-relative
+        path (so an agent's read_file, which is workspace-rooted, can open it)."""
+        import os
+        d = os.path.join(self.workspace, "scratch")
+        os.makedirs(d, exist_ok=True)
+        self._scratch_n = getattr(self, "_scratch_n", 0) + 1
+        rel = f"scratch/{prefix}-{self._scratch_n}.md"
+        try:
+            with open(os.path.join(self.workspace, rel), "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError:
+            return ""
+        return rel
+
+    def _context_block(self, history: list) -> str:
+        """Teammate outputs for the next agent, but budget-bounded.
+
+        Scratchpad discipline: local models have a small context window, and a
+        pipeline that concatenates several full outputs (each maybe a whole file)
+        overflows it — degrading judgment, not just speed. So above a generous
+        char budget we save the complete history to a workspace scratchpad and
+        hand over a trimmed view (the most-recent output kept fullest, since
+        that's what the next agent builds on) plus a pointer to read the rest.
+        Below budget — the common case — this is byte-for-byte the old behavior."""
+        block = _history_block(history)
+        budget = int(self.settings.get("context_budget", 16000))
+        if budget <= 0 or len(block) <= budget or not history:
+            return block
+        path = self._write_scratch("handoff", block)
+        ordered = sorted(history, key=lambda x: x.get("ts", 0))
+        parts = []
+        for i, h in enumerate(ordered):
+            is_last = i == len(ordered) - 1
+            content = h["content"]
+            cap = 7000 if is_last else 900
+            if len(content) > cap:
+                note = f"\n… [trimmed to fit context; full output in {path}]" if path \
+                    else "\n… [trimmed to fit context]"
+                content = _head(content, cap) + note
+            parts.append(f"### Output from {h['agent']}\n{content}")
+        header = ""
+        if path:
+            header = (f"(Some teammate outputs were long and are trimmed below to fit "
+                      f"the context window. The complete, untrimmed work is saved at "
+                      f"`{path}` — if you have a read_file tool and need a trimmed part "
+                      f"in full, read it.)\n\n")
+        return header + "\n\n".join(parts)
+
     def _worker_node(self, agent: dict):
         name = agent["name"]
 
@@ -810,7 +859,7 @@ class TeamRunner:
                             "provider": agent.get("provider", "ollama")})
             user = (
                 f"## Task\n{state['task']}\n\n"
-                f"## Work so far from your teammates\n{_history_block(state.get('history', []))}"
+                f"## Work so far from your teammates\n{self._context_block(state.get('history', []))}"
             )
             if state.get("feedback"):
                 user += (
@@ -885,7 +934,7 @@ class TeamRunner:
                 "If REVISE, follow with a short numbered list of concrete fixes."
             )
             user = (f"## Task\n{state['task']}\n\n## Work to review\n"
-                    f"{_history_block(hist)}\n\nVerdict:")
+                    f"{self._context_block(hist)}\n\nVerdict:")
             content = self._stream_call(reviewer, [
                 SystemMessage(content=sys), HumanMessage(content=user)])
             approved = content.strip().upper().startswith("APPROVED")
@@ -1020,7 +1069,7 @@ class TeamRunner:
                 "Choose FINISH only when the collected work fully covers the task."
             )
             user = (f"## Task\n{state['task']}\n\n## Work collected so far\n"
-                    f"{_history_block(hist)}\n\nJSON decision:")
+                    f"{self._context_block(hist)}\n\nJSON decision:")
             content = self._stream_call(sup, [
                 SystemMessage(content=sys), HumanMessage(content=user)])
             nxt, instruction = parse_route(content)
@@ -1043,7 +1092,7 @@ class TeamRunner:
                 "deliverable itself."
             )
             user = (f"## Task\n{state['task']}\n\n## Team work\n"
-                    f"{_history_block(state.get('history', []))}\n\nFinal deliverable:")
+                    f"{self._context_block(state.get('history', []))}\n\nFinal deliverable:")
             content = self._stream_call(sup, [
                 SystemMessage(content=sys), HumanMessage(content=user)])
             self.emit("agent_end", agent=sup["name"], content=content)
