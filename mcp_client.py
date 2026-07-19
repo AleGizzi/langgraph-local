@@ -66,11 +66,12 @@ def _clip(text: str, limit: int = 6000) -> str:
 class _MCPServer:
     """One MCP server: its own event loop + thread, session kept alive."""
 
-    def __init__(self, key, command, args, env=None, start_timeout=180):
+    def __init__(self, key, command, args, env=None, start_timeout=180, cwd=None):
         self.key = key
         self.command = command
         self.args = args
         self.env = env
+        self.cwd = cwd
         self.start_timeout = start_timeout
         self._loop = None
         self._thread = None
@@ -126,7 +127,7 @@ class _MCPServer:
 
         self._stop = asyncio.Event()
         params = StdioServerParameters(
-            command=self.command, args=self.args, env=self.env)
+            command=self.command, args=self.args, env=self.env, cwd=self.cwd)
         try:
             async with stdio_client(params) as (read, write):
                 async with ClientSession(read, write) as session:
@@ -171,17 +172,19 @@ def _playwright_server() -> _MCPServer:
         if srv is None:
             # --headless: no visible window (and no GPU contention with Fooocus).
             # --isolated: a throwaway profile, so browsing leaves nothing behind.
-            # Version pin: 0.0.29 bundles Playwright 1.53, the last line that
-            # still supports this machine's Node 18. Newer @playwright/mcp needs
-            # Node 20+. Bump the pin if/when Node is upgraded.
-            # @latest needs Node 20+ (this machine now runs Node 22). If you must
-            # run on Node 18 again, override with PLAYWRIGHT_MCP_SPEC=@playwright/mcp@0.0.29.
+            # @latest needs Node 20+ (this machine runs Node 22). To run on Node
+            # 18 instead, override PLAYWRIGHT_MCP_SPEC=@playwright/mcp@0.0.29.
             spec = os.environ.get("PLAYWRIGHT_MCP_SPEC", "@playwright/mcp@latest")
             # --browser chromium: use Playwright's bundled Chromium build (which
             # we install), NOT the "chrome" channel it defaults to (that expects
             # a system Google Chrome at /opt/google/chrome and isn't present).
             args = ["-y", spec, "--headless", "--isolated", "--browser", "chromium"]
-            srv = _MCPServer(key, "npx", args, env=os.environ.copy())
+            # The server writes per-session page snapshots to `.playwright-mcp/`
+            # in its cwd — keep that under data/ so it never litters the repo.
+            cwd = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "data", "mcp")
+            os.makedirs(cwd, exist_ok=True)
+            srv = _MCPServer(key, "npx", args, env=os.environ.copy(), cwd=cwd)
             _SERVERS[key] = srv
         return srv
 
