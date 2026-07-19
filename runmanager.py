@@ -74,12 +74,12 @@ class RunManager:
         with self._lock:
             return self._runs.get(run_id)
 
-    def start(self, team: dict, task: str) -> int:
+    def start(self, team: dict, task: str, mode: str = "balanced") -> int:
         run_id = storage.create_run(team["id"], team["name"], task)
         active = ActiveRun(run_id)
         with self._lock:
             self._runs[run_id] = active
-        t = threading.Thread(target=self._execute, args=(active, team, task),
+        t = threading.Thread(target=self._execute, args=(active, team, task, mode),
                              daemon=True, name=f"run-{run_id}")
         t.start()
         return run_id
@@ -91,7 +91,8 @@ class RunManager:
             return True
         return False
 
-    def _execute(self, active: ActiveRun, team: dict, task: str):
+    def _execute(self, active: ActiveRun, team: dict, task: str,
+                 mode: str = "balanced"):
         run_id = active.run_id
         workspace = os.path.join(WORKSPACES, str(run_id))
         os.makedirs(workspace, exist_ok=True)
@@ -112,11 +113,20 @@ class RunManager:
                     concurrency = sysinfo.assess()["parallel"]["capacity"]
                 except Exception:  # noqa: BLE001 - fall back to serial
                     concurrency = 1
+            # Run mode shifts each agent's model along its family size ladder.
+            # Apply to a copy so the stored team is never mutated.
+            if mode and mode != "balanced":
+                try:
+                    import modes
+                    import providers
+                    team = modes.apply_mode(team, mode, providers.list_models())
+                except Exception:  # noqa: BLE001 - fall back to as-authored
+                    pass
             emit("run_start", content=task,
                  meta={"team": team["name"], "topology": team.get("topology"),
-                       "concurrency": concurrency})
+                       "concurrency": concurrency, "mode": mode})
             runner = TeamRunner(team, task, workspace, emit, active.cancel_event,
-                                max_concurrency=concurrency)
+                                max_concurrency=concurrency, run_id=run_id, mode=mode)
             final = runner.run()
             # Save the deliverable as an artifact automatically.
             try:

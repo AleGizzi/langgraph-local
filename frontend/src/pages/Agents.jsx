@@ -18,6 +18,42 @@ const RUN_STATUS = {
   error: ["⚠️", "var(--red)"], cancelled: ["⏹", "var(--text-3)"],
 };
 
+function ModelPerformance() {
+  const [d, setD] = useState(null);
+  useEffect(() => { api("/decisions").then(setD).catch(() => {}); }, []);
+  if (!d || !d.stats?.length) return null;
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  return (
+    <div className="card dash-card decision-card">
+      <h3>📊 Model performance <span className="tag">decision log</span></h3>
+      <div className="sub">
+        How each model does on the role it's given, from real team runs. A high
+        <b> escalate</b> rate (ran out of revisions / produced nothing) is the evidence
+        to move that role up to a bigger model; a high rebrief rate is usually a
+        prompt problem, not a model one.
+      </div>
+      <div className="decision-table-wrap">
+        <table className="decision-table">
+          <thead><tr><th>Model</th><th>Role</th><th>Runs</th><th>Accept</th>
+            <th>Rebrief</th><th>Escalate/fail</th></tr></thead>
+          <tbody>
+            {d.stats.map((s, i) => (
+              <tr key={i}>
+                <td className="mono">{s.model}</td>
+                <td>{s.role || "—"}</td>
+                <td>{s.total}</td>
+                <td><span className="dbar ok" style={{ "--w": pct(s.accept_rate) }} />{pct(s.accept_rate)}</td>
+                <td>{s.rebriefed}</td>
+                <td className={s.escalate_rate >= 0.4 ? "warn" : ""}>{pct(s.escalate_rate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard() {
   const [d, setD] = useState(null);
   useEffect(() => { api("/dashboard").then(setD).catch(() => {}); }, []);
@@ -109,6 +145,8 @@ function Dashboard() {
           )) : <div className="help" style={{ padding: 12 }}>No team runs yet.</div>}
         </div>
       </div>
+
+      <ModelPerformance />
     </div>
   );
 }

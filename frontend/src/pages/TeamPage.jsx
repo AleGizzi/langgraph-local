@@ -60,6 +60,7 @@ export default function TeamPage({ teamId }) {
   const [team, setTeam] = useState(null);
   const [editing, setEditing] = useState(false);
   const [task, setTask] = useState("");
+  const [mode, setMode] = useState("balanced");
   const [runId, setRunId] = useState(null);
   const [running, setRunning] = useState(false);
   const stopDisabled = useRef(false);
@@ -72,7 +73,7 @@ export default function TeamPage({ teamId }) {
   const start = async () => {
     if (!task.trim()) { toast("Describe a task first", true); return; }
     try {
-      const { run_id } = await api(`/teams/${teamId}/runs`, { method: "POST", body: { task: task.trim() } });
+      const { run_id } = await api(`/teams/${teamId}/runs`, { method: "POST", body: { task: task.trim(), mode } });
       stopDisabled.current = false;
       setRunId(run_id);
       setRunning(true);
@@ -111,7 +112,14 @@ export default function TeamPage({ teamId }) {
         />
         <div className="task-actions">
           <span className="task-hint">Ctrl+Enter to run · runs entirely on your machine</span>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <label className="mode-picker" title="Shifts every agent's model along its family size ladder for this run">
+              <select value={mode} onChange={(e) => setMode(e.target.value)} disabled={running}>
+                <option value="max-savings">⚡ Max savings (smaller, faster)</option>
+                <option value="balanced">⚖️ Balanced (as configured)</option>
+                <option value="quality">💎 Quality (larger, slower)</option>
+              </select>
+            </label>
             {running && <button className="btn danger" onClick={stop}>■ Stop</button>}
             <button className="btn primary" disabled={running} onClick={start}>▶ Run team</button>
           </div>

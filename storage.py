@@ -141,6 +141,21 @@ CREATE TABLE IF NOT EXISTS notifications (
     read INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER,
+    team_name TEXT,
+    role TEXT,
+    agent_name TEXT,
+    model TEXT NOT NULL,
+    provider TEXT,
+    kind TEXT,
+    mode TEXT,
+    outcome TEXT NOT NULL,
+    detail TEXT,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_model ON decisions(model, outcome);
 """
 
 
@@ -341,6 +356,59 @@ def mark_notifications_read(ids=None):
 def clear_notifications():
     with _conn() as c:
         c.execute("DELETE FROM notifications")
+
+
+# ---------------- decision log ----------------
+# Records what model did what task and how it turned out, so the model-routing
+# tables can be tuned on evidence (see engine._record_decision). Outcome is one
+# of: accepted | rebriefed | escalated | failed.
+
+def add_decision(d: dict) -> int:
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO decisions (run_id, team_name, role, agent_name, model,"
+            " provider, kind, mode, outcome, detail, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (d.get("run_id"), d.get("team_name"), d.get("role"), d.get("agent_name"),
+             d.get("model", "?"), d.get("provider"), d.get("kind"), d.get("mode"),
+             d.get("outcome", "accepted"), (d.get("detail") or "")[:500], time.time()))
+        return cur.lastrowid
+
+
+def list_decisions(limit: int = 200) -> list:
+    with _conn() as c:
+        rows = c.execute("SELECT * FROM decisions ORDER BY id DESC LIMIT ?",
+                         (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def decision_stats() -> list:
+    """Accept-rate per (model, role), newest-weighted only by recency of rows.
+
+    'accepted' and 'rebriefed' both count as the model ultimately delivering;
+    'escalated' and 'failed' are misses. The distinction the caller cares about
+    is the escalate rate — that is what justifies bumping a model tier."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT model, role, outcome, COUNT(*) n FROM decisions"
+            " GROUP BY model, role, outcome").fetchall()
+    agg = {}
+    for r in rows:
+        key = (r["model"], r["role"] or "")
+        a = agg.setdefault(key, {"model": r["model"], "role": r["role"] or "",
+                                 "total": 0, "accepted": 0, "rebriefed": 0,
+                                 "escalated": 0, "failed": 0})
+        a["total"] += r["n"]
+        if r["outcome"] in a:
+            a[r["outcome"]] += r["n"]
+    out = []
+    for a in agg.values():
+        t = a["total"] or 1
+        a["accept_rate"] = round((a["accepted"] + a["rebriefed"]) / t, 3)
+        a["escalate_rate"] = round((a["escalated"] + a["failed"]) / t, 3)
+        out.append(a)
+    out.sort(key=lambda x: (-x["total"], x["model"]))
+    return out
 
 
 def init_db():

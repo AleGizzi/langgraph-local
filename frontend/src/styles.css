@@ -1165,3 +1165,22 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
 }
 .guide-foot { padding: 24px 0 60px; color: var(--text-3); font-size: 13px; }
 @media (max-width: 720px) { .guide-nav { display: none; } }
+
+/* Run mode picker + decision-log table */
+.mode-picker select {
+  font-size: 12.5px; padding: 6px 8px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-1);
+}
+.decision-card { grid-column: 1 / -1; }
+.decision-table-wrap { overflow-x: auto; }
+.decision-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.decision-table th, .decision-table td {
+  text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.decision-table th { color: var(--text-3); font-weight: 600; }
+.decision-table td.mono { font-family: var(--mono); }
+.decision-table td.warn { color: var(--red); font-weight: 600; }
+.decision-table .dbar {
+  display: inline-block; height: 7px; width: var(--w); max-width: 80px;
+  background: var(--green); border-radius: 4px; margin-right: 6px; vertical-align: middle;
+}

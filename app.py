@@ -13,6 +13,7 @@ from flask import Flask, Response, abort, jsonify, request, send_from_directory
 import providers
 import seeds
 import storage
+from modes import MODES
 import sysinfo
 from runmanager import WORKSPACES, manager
 import tools as tools_mod
@@ -1356,8 +1357,21 @@ def runs_create(team_id):
     task = (body.get("task") or "").strip()
     if not task:
         abort(400, "task is required")
-    run_id = manager.start(team, task)
+    mode = body.get("mode") if body.get("mode") in MODES else "balanced"
+    run_id = manager.start(team, task, mode=mode)
     return jsonify({"run_id": run_id})
+
+
+@app.get("/api/modes")
+def modes_list():
+    return jsonify({"modes": list(MODES)})
+
+
+@app.get("/api/decisions")
+def decisions_list():
+    """The decision log: accept-rate per model+role, plus recent raw rows."""
+    return jsonify({"stats": storage.decision_stats(),
+                    "recent": storage.list_decisions(limit=60)})
 
 
 @app.get("/api/runs")

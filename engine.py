@@ -476,12 +476,16 @@ class TeamRunner:
     """Runs one team on one task, emitting events via `emit(type, **kw)`."""
 
     def __init__(self, team: dict, task: str, workspace: str, emit, cancel_event,
-                 max_concurrency: int = 1):
+                 max_concurrency: int = 1, run_id: int = None,
+                 mode: str = "balanced"):
         self.team = team
         self.task = task
         self.workspace = workspace
         self.emit = emit
         self.cancel = cancel_event
+        self.run_id = run_id
+        self.mode = mode
+        self._decisions = []            # rows for the decision log (flushed at end)
         self.agents = {a["name"]: a for a in team["agents"]}
         self.settings = team.get("settings", {})
         try:
@@ -498,6 +502,37 @@ class TeamRunner:
         self._last_exec = None          # (tool_name, passed) of the newest exec-tool result
         self._last_exec_output = ""     # its raw output (the traceback / test result)
         self._attempt_log = []          # short "tried → outcome" notes across revisions
+
+    # ---------------- decision log ----------------
+
+    def _record_decision(self, agent: dict, outcome: str, detail: str = "",
+                         kind: str = None):
+        """Note how one agent's delegated task turned out, for the decision log.
+
+        outcome ∈ {accepted, rebriefed, escalated, failed}. Buffered here and
+        flushed to storage once the run finishes (see _flush_decisions)."""
+        self._decisions.append({
+            "run_id": self.run_id,
+            "team_name": self.team.get("name"),
+            "role": agent.get("role") or agent.get("name"),
+            "agent_name": agent.get("name"),
+            "model": agent.get("model", "?"),
+            "provider": agent.get("provider", "ollama"),
+            "kind": kind or self.team.get("topology", "pipeline"),
+            "mode": self.mode,
+            "outcome": outcome,
+            "detail": detail,
+        })
+
+    def _flush_decisions(self):
+        if not self._decisions:
+            return
+        try:
+            import storage
+            for d in self._decisions:
+                storage.add_decision(d)
+        except Exception:  # noqa: BLE001 - logging must never break a run
+            pass
 
     # ---------------- LLM helpers ----------------
 
@@ -881,6 +916,21 @@ class TeamRunner:
                 worker_outs = [h for h in hist if h["agent"] != rev_name]
                 out["final"] = worker_outs[-1]["content"] if worker_outs else ""
                 out["next_agent"] = "END"
+                # Decision log: how did the builder(s) do? Approved first pass =
+                # accepted; approved only after revisions = rebriefed (needed
+                # iteration but got there); ran out of revisions unapproved =
+                # escalated (this model couldn't do it → tier-bump candidate).
+                rev = state.get("revision", 0)
+                if not approved:
+                    b_outcome, b_detail = "escalated", f"unapproved after {max_rev} revisions"
+                elif rev == 0:
+                    b_outcome, b_detail = "accepted", "approved first pass"
+                else:
+                    b_outcome, b_detail = "rebriefed", f"approved after {rev} revision(s)"
+                for w in workers:
+                    self._record_decision(w, b_outcome, b_detail)
+                self._record_decision(reviewer, "accepted" if approved else "escalated",
+                                      f"verdict={verdict}")
                 if not approved:
                     self.emit("decision", agent=rev_name,
                               content=f"Max revisions ({max_rev}) reached; shipping best attempt.")
@@ -1136,6 +1186,11 @@ class TeamRunner:
                                f"on {worker['model']}"))
             result = self._worker_node(worker)(state)
             result["final"] = result["history"][-1]["content"]
+            # Decision log: router has no reviewer, so the signal is coarse —
+            # produced usable output = accepted, empty = failed.
+            ok = bool((result["final"] or "").strip())
+            self._record_decision(worker, "accepted" if ok else "failed",
+                                  f"routed as {cls['kind']}", kind=cls["kind"])
             return result
 
         g.add_node("_route", route_node)
@@ -1170,4 +1225,14 @@ class TeamRunner:
         final = final_state.get("final") or ""
         if not final and final_state.get("history"):
             final = final_state["history"][-1]["content"]
+
+        # Decision log: topologies without a reviewer (single, plain pipeline,
+        # supervisor) log nothing above, so fall back to a coarse per-agent
+        # accepted/failed based on whether the run produced output.
+        if not self._decisions:
+            produced = bool((final or "").strip())
+            for a in self.team["agents"]:
+                self._record_decision(a, "accepted" if produced else "failed",
+                                      "run completed" if produced else "no output")
+        self._flush_decisions()
         return final
