@@ -339,7 +339,15 @@ def imagegen_generate():
     return jsonify(imagegen.generate(
         prompt, negative=body.get("negative", ""),
         steps=body.get("steps"), aspect=body.get("aspect") or "1152*896",
-        performance=body.get("performance"), loras=body.get("loras")))
+        performance=body.get("performance"), loras=body.get("loras"),
+        base_model=body.get("base_model")))
+
+
+@app.get("/api/imagegen/models")
+def imagegen_models():
+    """Base-model checkpoints Fooocus has installed (for the model picker)."""
+    import imagegen
+    return jsonify(imagegen.list_checkpoints())
 
 
 @app.get("/api/imagegen/modes")
@@ -369,7 +377,8 @@ def imagegen_modify():
         performance=body.get("performance"), loras=body.get("loras"),
         weight=body.get("weight", 0.6), stop=body.get("stop", 0.5),
         outpaint=body.get("outpaint"), mask=body.get("mask"),
-        aspect=body.get("aspect") or "1152*896"))
+        aspect=body.get("aspect") or "1152*896",
+        base_model=body.get("base_model")))
 
 
 @app.get("/api/imagegen/ui")
@@ -758,11 +767,12 @@ def resources_delete(rid):
 
 @app.get("/api/resources/prompt")
 def resources_get_prompt():
-    """The editable search-guidance prompt for a category."""
+    """The editable search-guidance prompt + model for a category."""
     import resources
     cat = request.args.get("category", "news")
     return jsonify({"category": cat, "prompt": resources.get_prompt(cat),
-                    "default": resources.DEFAULT_PROMPTS.get(cat, "")})
+                    "default": resources.DEFAULT_PROMPTS.get(cat, ""),
+                    "model": resources.get_model(cat)})
 
 
 @app.put("/api/resources/prompt")
@@ -771,17 +781,24 @@ def resources_set_prompt():
     body = request.get_json(force=True) or {}
     cat = body.get("category", "news")
     resources.set_prompt(cat, body.get("prompt", ""))
-    return jsonify({"ok": True, "prompt": resources.get_prompt(cat)})
+    # An empty/absent model clears the override and restores the auto-pick.
+    if "model" in body:
+        resources.set_model(cat, body.get("provider", "ollama"), body.get("model", ""))
+    return jsonify({"ok": True, "prompt": resources.get_prompt(cat),
+                    "model": resources.get_model(cat)})
 
 
 @app.post("/api/resources/refresh")
 def resources_refresh():
     """Run the research agent to find fresh links for a category (blocks until
-    done — the caller shows a spinner)."""
+    done — the caller shows a spinner). An explicit model in the body overrides
+    the category's saved one for this run only."""
     import resources
     body = request.get_json(force=True) or {}
     return jsonify(resources.refresh(category=body.get("category", "news"),
-                                     n=int(body.get("n", 6))))
+                                     n=int(body.get("n", 6)),
+                                     provider=body.get("provider"),
+                                     model=body.get("model")))
 
 
 # ---------------- scheduled tasks ----------------

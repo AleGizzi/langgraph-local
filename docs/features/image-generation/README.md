@@ -46,11 +46,17 @@ runtime (Fooocus).
   (best-effort — see Gotchas).
 - `POST /api/imagegen/generate`
   `{prompt (required), negative?, steps?, aspect? (default "1152*896"),
-  performance? (default "Extreme Speed"), loras? ([{file_name, weight}])}` →
+  performance? (default "Extreme Speed"), base_model?,
+  loras? ([{file_name, weight}])}` →
   `imagegen.generate()`: `{ok, images: ["filename.png", ...], error}`. Each
   `loras` entry becomes a Fooocus-API `{"enabled": true, "model_name":
   file_name, "weight": weight}` entry (weight clamped to `[0, 2]`); malformed
   entries are silently skipped rather than raising.
+- `GET /api/imagegen/models` → `imagegen.list_checkpoints()`:
+  `{ok, models: ["juggernautXL_v8Rundiffusion.safetensors", ...],
+  loras: [...], error}` — read from Fooocus-API's `/v1/engines/all-models`.
+  Requires the server to be running; returns empty lists with an `error`
+  otherwise (never raises).
 - `GET /api/imagegen/gallery` → `{images: [filenames, newest first]}`.
 - `GET /api/imagegen/images/<filename>` → the raw image file
   (path-traversal safe: filename is `os.path.basename`'d and resolved
@@ -129,6 +135,23 @@ negative=negative)` with **default** aspect ratio and performance mode (no
   (measured ~86s/step on the reference 4 GB card → ~40 min for the 30-step
   `Speed` mode). An explicit `steps` argument overrides the preset via
   `advanced_params.overwrite_step`.
+- **Base model / checkpoint** (`base_model` → Fooocus-API `base_model_name`):
+  the checkpoint that actually paints the image, and a far bigger lever on the
+  result than the prompt. `list_checkpoints()` reads what is installed from
+  `/v1/engines/all-models`; the picker sits above Aspect/Speed in `ImageGen`
+  and threads through the queue into both `generate()` and `modify()`. Omit it
+  (`""` in the UI) to let Fooocus use whatever it is configured with — that is
+  the default, so nothing changes for existing callers, including the
+  `generate_image` agent tool and the sprite/persona pipelines, none of which
+  pass it.
+  - Fooocus **does not error on an unknown checkpoint** — it logs
+    `[Warning] Wrong base model input: <name>, using default` and silently
+    renders with the default. So a stale pick produces a *plausible wrong
+    image*, not a failure; the UI therefore drops a selection that is no
+    longer in the installed list when it reloads them.
+  - The choice is recorded in each image's meta sidecar (`base_model`) and
+    shown in the gallery's detail table, so an image you like can be traced
+    back to the checkpoint that made it.
 - **LoRAs** (`loras.py`): `search()` hits Civitai's public REST API directly
   (no API key needed to search) and classifies each `modelVersion` as
   SDXL-compatible or not client-side, because Civitai's own `baseModels`
@@ -171,8 +194,8 @@ negative=negative)` with **default** aspect ratio and performance mode (no
 ### Modifying an existing image (img2img)
 
 `GET /api/imagegen/modes` lists what can be done; `POST /api/imagegen/modify`
-does it. Body: `{image, mode, prompt, negative, performance, loras, weight,
-outpaint, mask, aspect}` where **`image`** is a data URL, raw base64, or the filename
+does it. Body: `{image, mode, prompt, negative, performance, base_model, loras,
+weight, outpaint, mask, aspect}` where **`image`** is a data URL, raw base64, or the filename
 of an image already in the gallery. Response is the same `{ok, images, error}`
 shape as `/generate`.
 
@@ -392,7 +415,20 @@ LoRAs, date) with **♻️ Reuse** to load an old prompt back into the form.
 7. `GET /api/loras/search?q=pokemon+sprite&base=SDXL` and confirm real
    Civitai results come back with a mix of `compatible: true/false` values
    (SD 1.5 results should be marked `false`, SDXL/Pony `true`).
-8. `POST /api/loras/download {"download_url": "<a result's download_url>",
+8. Base-model picker. Verified 2026-07-20 without spending GPU time (the card
+   was busy), which is the cheap way to check this:
+   - `GET /api/imagegen/models` (server running) → `models` matches the
+     `.safetensors` files in Fooocus's `checkpoints` folder.
+   - Stub `requests.post` and call `generate`/`modify` → `base_model` must
+     appear as `base_model_name`, and the key must be **absent** when unset.
+   - POST a nonexistent `base_model_name` straight to Fooocus and watch
+     `server.log` → `[Warning] Wrong base model input: <name>, using default`,
+     which is what proves the field is read rather than ignored.
+   - STILL UNVERIFIED: a full render through `imgqueue` with a non-default
+     checkpoint (needs a free GPU and a ~6GB model swap). Queue one job with
+     `params.base_model` set and confirm the saved image's meta sidecar
+     records it and the picture's style actually changed.
+9. `POST /api/loras/download {"download_url": "<a result's download_url>",
    "file_name": "<its file_name>"}`, poll `GET /api/loras` until that
    `file_name`'s entry in `downloads` has `done: true` (and `error: null`),
    then confirm it now also appears in `local`. If it 401s instead, that

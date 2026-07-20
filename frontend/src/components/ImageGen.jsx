@@ -10,6 +10,8 @@ export default function ImageGen() {
   const [negative, setNegative] = useState("");
   const [aspect, setAspect] = useState("1152*896");
   const [speed, setSpeed] = useState("Extreme Speed");
+  const [checkpoints, setCheckpoints] = useState([]);   // installed base models
+  const [baseModel, setBaseModel] = useState("");       // "" = Fooocus default
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
@@ -96,6 +98,17 @@ export default function ImageGen() {
     loadGallery();
     api("/imagegen/modes").then((d) => setModes(d.modes || [])).catch(() => {});
   }, []);
+
+  // Checkpoints only exist once Fooocus-API is up, so (re)load them whenever it
+  // starts. A stale pick is dropped rather than silently sent to the backend.
+  useEffect(() => {
+    if (!status?.running) return;
+    api("/imagegen/models").then((d) => {
+      const list = d.models || [];
+      setCheckpoints(list);
+      setBaseModel((cur) => (cur && !list.includes(cur) ? "" : cur));
+    }).catch(() => {});
+  }, [status?.running]);
 
   // Poll the job queue every 3s while anything is queued/running.
   const queueActive = queueJobs.some((j) => j.status === "queued" || j.status === "running");
@@ -240,6 +253,7 @@ export default function ImageGen() {
             image: source.data ?? source.name,  // data URL, or a gallery filename
             mode, prompt, negative, performance: speed,
             weight: Number(cnWeight) || 0.6,
+            ...(baseModel ? { base_model: baseModel } : {}),
             ...(spec?.needs_mask ? { mask } : {}),
             ...(mode === "outpaint" ? { outpaint: outDirs } : {}),
             ...(loraPayload().length ? { loras: loraPayload() } : {}),
@@ -275,6 +289,7 @@ export default function ImageGen() {
           kind: "generate",
           count: n,
           params: { prompt, negative, aspect, performance: speed,
+                    ...(baseModel ? { base_model: baseModel } : {}),
                     ...(loraPayload().length ? { loras: loraPayload() } : {}) },
         },
       });
@@ -638,6 +653,32 @@ export default function ImageGen() {
                 fontSize: 13,
               }}
             />
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: "block", marginBottom: 4, fontWeight: 500 }}>Base model</label>
+            <select
+              value={baseModel}
+              onChange={(e) => setBaseModel(e.target.value)}
+              disabled={!checkpoints.length}
+              style={{
+                width: "100%",
+                padding: "8px 6px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                fontSize: 13,
+              }}
+            >
+              <option value="">Fooocus default checkpoint</option>
+              {checkpoints.map((m) => (
+                <option key={m} value={m}>{m.replace(/\.safetensors$/, "")}</option>
+              ))}
+            </select>
+            <div className="help" style={{ marginTop: 4 }}>
+              {checkpoints.length
+                ? "The checkpoint that actually paints the image — it decides the look far more than the prompt does. Switching it makes Fooocus reload ~6GB, so the first image after a change is slow. LoRAs below must match its base (SDXL)."
+                : "Start the image server to see the checkpoints you have installed."}
+            </div>
           </div>
 
           <div style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
@@ -1085,7 +1126,7 @@ export default function ImageGen() {
                 <thead>
                   <tr>
                     <th></th><th>Prompt</th><th>Negative</th><th>Mode / speed</th>
-                    <th>LoRAs</th><th>Date</th><th></th>
+                    <th>Base model</th><th>LoRAs</th><th>Date</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1112,6 +1153,9 @@ export default function ImageGen() {
                           </div>
                         </td>
                         <td className="mono">{meta.mode_label || meta.mode || meta.performance || "—"}</td>
+                        <td className="mono">
+                          {meta.base_model ? meta.base_model.replace(/\.safetensors$/, "") : "—"}
+                        </td>
                         <td>
                           {loras.length
                             ? loras.map((l) => (l && l.file_name) || l).filter(Boolean).join(", ")

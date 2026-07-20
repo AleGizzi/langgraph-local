@@ -27,18 +27,40 @@ export default function Resources() {
   const [editingPrompt, setEditingPrompt] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [promptDefault, setPromptDefault] = useState("");
+  const [models, setModels] = useState([]);   // ["ollama/qwen2.5:7b", …]
+  const [model, setModel] = useState("");     // "" = auto-pick
 
   const load = () => api("/resources").then((d) => setItems(d.resources)).catch(() => {});
   useEffect(() => { load(); }, []);
   useEffect(() => {
+    api("/models").then((d) => {
+      const out = [];
+      Object.entries(d || {}).forEach(([prov, names]) => {
+        if (Array.isArray(names)) names.forEach((n) => out.push(`${prov}/${n}`));
+      });
+      setModels(out);
+    }).catch(() => {});
+  }, []);
+  useEffect(() => {
     api(`/resources/prompt?category=${cat}`).then((d) => {
       setPrompt(d.prompt); setPromptDefault(d.default);
+      setModel(d.model?.model ? `${d.model.provider}/${d.model.model}` : "");
     }).catch(() => {});
     setEditingPrompt(false);
   }, [cat]);
 
+  // "ollama/qwen2.5:7b" -> {provider, model}; "" -> {provider:"", model:""}.
+  // Only the FIRST slash splits: model names themselves can contain slashes.
+  const splitModel = (v) => {
+    const i = (v || "").indexOf("/");
+    return i < 0 ? { provider: "", model: "" }
+                 : { provider: v.slice(0, i), model: v.slice(i + 1) };
+  };
+
   const savePrompt = async () => {
-    await api("/resources/prompt", { method: "PUT", body: { category: cat, prompt } });
+    await api("/resources/prompt", {
+      method: "PUT", body: { category: cat, prompt, ...splitModel(model) },
+    });
     toast("Search prompt saved — future refreshes will use it");
     setEditingPrompt(false);
   };
@@ -46,7 +68,9 @@ export default function Resources() {
   const refresh = async () => {
     setRefreshing(true);
     try {
-      const r = await api("/resources/refresh", { method: "POST", body: { category: cat, n: 6 } });
+      const r = await api("/resources/refresh", {
+        method: "POST", body: { category: cat, n: 6, ...splitModel(model) },
+      });
       if (!r.ok) toast(r.error || "Refresh failed", true);
       else toast(`Found ${r.found}, added ${r.added} new link${r.added !== 1 ? "s" : ""} (via ${r.model})`);
       load();
@@ -79,7 +103,7 @@ export default function Resources() {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn" onClick={() => setEditingPrompt(!editingPrompt)}>
-            ✏️ Edit search prompt
+            ✏️ Search prompt & model
           </button>
           <button className="btn" onClick={() => setAdding(!adding)}>＋ Add link</button>
           <button className="btn primary" onClick={refresh} disabled={refreshing}>
@@ -96,7 +120,7 @@ export default function Resources() {
       {editingPrompt && (
         <div className="card" style={{ padding: 14, marginBottom: 12 }}>
           <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 4 }}>
-            What the agent looks for in <b>{CAT_META[cat][1]}</b>
+            What the agent looks for in <b>{CAT_META[cat][1]}</b>, and which model does it
           </div>
           <div className="help" style={{ marginBottom: 8 }}>
             Edit what the research agent searches for when you click "Refresh". Describe the
@@ -106,7 +130,25 @@ export default function Resources() {
           <textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)}
             style={{ width: "100%", padding: 9, border: "1px solid var(--border)",
                      borderRadius: 6, fontSize: 13, resize: "vertical" }} />
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10,
+                        flexWrap: "wrap" }}>
+            <label style={{ fontWeight: 600, fontSize: 13 }}>Model</label>
+            <select value={model} onChange={(e) => setModel(e.target.value)}
+              style={{ padding: "6px 9px", border: "1px solid var(--border)",
+                       borderRadius: 6, fontSize: 13, minWidth: 220 }}>
+              <option value="">Auto (first qwen2.5, else any)</option>
+              {models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div className="help" style={{ marginTop: 4 }}>
+            The model that does the searching. It must support <b>tool calling</b>
+            {" "}— a model without it (or too small) will skip the web search and
+            invent plausible-looking links instead. If a category keeps returning
+            made-up URLs, try a bigger model here before rewriting the prompt.
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button className="btn primary sm" onClick={savePrompt}>Save prompt</button>
             <button className="btn sm" onClick={() => setPrompt(promptDefault)}>Reset to default</button>
             <button className="btn sm ghost" onClick={() => setEditingPrompt(false)}>Cancel</button>

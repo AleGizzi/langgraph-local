@@ -146,6 +146,7 @@ def _archive(kind: str, params: dict, images: list):
             + f"- Mode: {kind}"
             + (f" / {params.get('mode')}" if params.get("mode") else "") + "\n"
             + f"- Performance: {params.get('performance') or 'default'}\n"
+            + f"- Base model: {params.get('base_model') or 'Fooocus default'}\n"
             + (f"- Aspect: {params.get('aspect')}\n" if params.get("aspect") else "")
             + (f"- LoRAs: {loras}\n" if loras else "")
             + f"- Image: `{', '.join(images)}`\n"
@@ -205,6 +206,7 @@ def _run_worker():
                     aspect=params.get("aspect") or "1152*896",
                     performance=params.get("performance"),
                     loras=params.get("loras"), styles=params.get("styles"),
+                    base_model=params.get("base_model"),
                     on_job_id=on_job_id)
             else:
                 res = imagegen.modify(
@@ -219,6 +221,7 @@ def _run_worker():
                     outpaint=params.get("outpaint"),
                     mask=params.get("mask"),
                     aspect=params.get("aspect") or "1152*896",
+                    base_model=params.get("base_model"),
                     on_job_id=on_job_id)
         except Exception as e:  # noqa: BLE001 - the worker must never die
             res = {"ok": False, "images": [], "error": f"{type(e).__name__}: {e}"}

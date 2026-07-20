@@ -536,6 +536,30 @@ def image_meta(name: str) -> dict:
         return {}
 
 
+def list_checkpoints() -> dict:
+    """The base-model checkpoints (and LoRAs) Fooocus has on disk. Never raises.
+
+    Fooocus-API exposes them at /v1/engines/all-models. An empty list is normal
+    before the server has started — the picker then just shows "Fooocus default".
+    """
+    try:
+        if not backend_status()["running"]:
+            return {"ok": False, "models": [], "loras": [],
+                    "error": "Fooocus-API server is not running — start it first"}
+        r = requests.get(f"{FOOOCUS_URL}/v1/engines/all-models", timeout=(5, 20))
+        r.raise_for_status()
+        d = r.json() or {}
+        return {"ok": True, "error": None,
+                "models": [str(m) for m in (d.get("model_filenames") or [])],
+                "loras": [str(l) for l in (d.get("lora_filenames") or [])]}
+    except requests.RequestException as e:
+        return {"ok": False, "models": [], "loras": [],
+                "error": f"Fooocus-API request failed: {e}"}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "models": [], "loras": [],
+                "error": f"{type(e).__name__}: {e}"}
+
+
 def _lora_entries(loras: list) -> list:
     out = []
     for item in loras or []:
@@ -733,7 +757,7 @@ def modify(source: str, mode: str = "vary_strong", prompt: str = "",
            negative: str = "", performance: str = None, loras: list = None,
            styles: list = None, weight: float = 0.6, stop: float = 0.5,
            outpaint: list = None, aspect: str = "1152*896",
-           mask: str = None, on_job_id=None) -> dict:
+           mask: str = None, base_model: str = None, on_job_id=None) -> dict:
     """Modify an EXISTING image (img2img). `source` is a data URL, raw base64,
     or the filename of an image already in the gallery.
 
@@ -769,6 +793,8 @@ def modify(source: str, mode: str = "vary_strong", prompt: str = "",
         "performance_selection": perf,
         "image_number": 1, "async_process": True,
     }
+    if base_model:
+        body["base_model_name"] = str(base_model)
     if styles is not None:
         body["style_selections"] = [str(s) for s in styles]
     entries = _lora_entries(loras)
@@ -798,6 +824,7 @@ def modify(source: str, mode: str = "vary_strong", prompt: str = "",
         body["outpaint_selections"] = dirs or ["Left", "Right"]
 
     meta = {"prompt": prompt, "negative": negative, "performance": perf,
+            "base_model": base_model or "",
             "mode": mode, "mode_label": spec["label"],
             "source": source if len(source or "") < 300 else "(uploaded image)",
             "loras": [{"file_name": e["model_name"], "weight": e["weight"]}
@@ -808,7 +835,8 @@ def modify(source: str, mode: str = "vary_strong", prompt: str = "",
 
 def generate(prompt: str, negative: str = "", steps: int = None,
             aspect: str = "1152*896", performance: str = None,
-            loras: list = None, styles: list = None, on_job_id=None) -> dict:
+            loras: list = None, styles: list = None, base_model: str = None,
+            on_job_id=None) -> dict:
     """POST a text-to-image job to Fooocus-API and poll it to completion.
 
     `performance` picks a Fooocus preset (see PERFORMANCE_MODES); the default is
@@ -820,6 +848,9 @@ def generate(prompt: str, negative: str = "", steps: int = None,
     Weights are clamped to [0, 2] (Fooocus-API itself allows [-2, 2], but
     negative weights aren't a use case this app exposes). Malformed entries
     are skipped rather than raising, per this module's "never raise" contract.
+
+    `base_model` is a checkpoint filename from list_checkpoints(); omit it to
+    let Fooocus use whatever it is configured with.
     """
     try:
         st = backend_status()
@@ -837,6 +868,8 @@ def generate(prompt: str, negative: str = "", steps: int = None,
             "image_number": 1,
             "async_process": True,
         }
+        if base_model:
+            body["base_model_name"] = str(base_model)
         if steps:
             body["advanced_params"] = {"overwrite_step": int(steps)}
         if styles is not None:
@@ -874,7 +907,7 @@ def generate(prompt: str, negative: str = "", steps: int = None,
                 pass
 
         gen_meta = {"prompt": prompt, "negative": negative, "aspect": aspect,
-                    "performance": perf,
+                    "performance": perf, "base_model": base_model or "",
                     "loras": [{"file_name": i.get("file_name"),
                                "weight": i.get("weight")} for i in (loras or [])
                               if isinstance(i, dict)],

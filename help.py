@@ -45,7 +45,11 @@ Fully-local app for building and running TEAMS OF AI AGENTS on local models
 - **AI News** (#/resources): curated links on AI news, running local LLMs,
   and open-source tools, in three tabs. "Refresh with agent" runs a
   web-researching agent to find fresh links for the current tab; you can
-  also add links by hand. Needs internet.
+  also add links by hand. Needs internet. "✏️ Search prompt & model" sets BOTH
+  what that tab looks for and WHICH model does the searching (saved per tab).
+  If a tab keeps returning links that don't exist, that is a model too small or
+  without tool calling inventing them instead of searching — pick a bigger
+  model there before rewriting the prompt.
 - **Runs** (#/runs): history of every team execution. Open one to replay the
   timeline, read the final deliverable, download files (📦 artifacts, .zip).
 - **Knowledge** (#/knowledge): a Markdown vault. Team deliverables are archived
@@ -196,6 +200,13 @@ or "Lightning" preset (a few minutes per image); the 30–60 step presets can ta
 ~40 minutes. Style LoRAs can be searched and downloaded from Civitai in that
 panel (only SDXL-compatible ones work); each installed LoRA shows its description,
 a source link and a remove button. Persona sprites use it automatically.
+"Base model" above Aspect ratio picks WHICH checkpoint paints the image — it
+decides the look far more than the prompt does, so switch it if the style is
+wrong. It lists the checkpoints you have installed (the server must be running);
+leave it on "Fooocus default" to keep the current behaviour. Changing it makes
+Fooocus reload ~6GB, so the first image after a switch is slow, and your LoRAs
+must match its base (SDXL). The gallery TABLE view shows which base model made
+each image.
 Use "✨ Help me write this" next to the prompt box to have a local model turn a
 plain description into a good prompt (it knows your LoRAs and your past prompts).
 Images are QUEUED: press Generate (optionally with ×N to queue a batch) and the

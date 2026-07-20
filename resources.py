@@ -57,6 +57,37 @@ def set_prompt(category: str, text: str):
         storage.set_meta(f"resource_prompt:{category}", (text or "").strip())
 
 
+def get_model(category: str) -> dict:
+    """The model chosen for a category's refresh, or {} to auto-pick.
+
+    Stored next to the prompt because it is the same kind of tuning knob: a
+    weak model invents plausible-looking links, so the fix for a bad category
+    is often "same prompt, better model".
+    """
+    if category not in CATEGORIES:
+        return {}
+    raw = storage.get_meta(f"resource_model:{category}") or ""
+    try:
+        val = json.loads(raw)
+    except ValueError:
+        return {}
+    if not isinstance(val, dict) or not val.get("model"):
+        return {}
+    return {"provider": val.get("provider") or "ollama", "model": val["model"]}
+
+
+def set_model(category: str, provider: str, model: str):
+    """Persist (or clear, with a falsy model) the refresh model for a category."""
+    if category not in CATEGORIES:
+        return
+    model = (model or "").strip()
+    if not model:
+        storage.set_meta(f"resource_model:{category}", "")
+        return
+    storage.set_meta(f"resource_model:{category}", json.dumps(
+        {"provider": (provider or "ollama").strip() or "ollama", "model": model}))
+
+
 def _extract_items(text: str) -> list:
     m = re.search(r"\[.*\]", text or "", re.DOTALL)
     if not m:
@@ -87,6 +118,10 @@ def refresh(category: str = "news", n: int = 6,
     from providers import list_models
     if category not in CATEGORIES:
         return {"ok": False, "error": f"unknown category '{category}'", "added": 0}
+    if not model:
+        # The user's saved choice for this category wins over the auto-pick.
+        saved = get_model(category)
+        model, provider = saved.get("model"), saved.get("provider")
     if not model:
         # A tool-capable model is required (web_search). qwen2.5 is the default.
         models = (list_models().get("ollama") or [])
@@ -124,4 +159,4 @@ def refresh(category: str = "news", n: int = 6,
         if storage.add_resource({**it, "category": category, "source": "agent"}):
             added += 1
     return {"ok": True, "error": None, "added": added, "found": len(items),
-            "model": model}
+            "model": model, "provider": provider or "ollama"}
