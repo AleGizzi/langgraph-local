@@ -22,6 +22,17 @@ _TICK = int(os.environ.get("SCHEDULER_TICK", "20"))   # seconds between wakeups
 _lock = threading.Lock()
 _started = False
 
+# The single scheduler thread runs schedules serially, so one long team run can
+# delay every other due schedule by up to an hour. Track what's executing so the
+# UI can show "running now" instead of a schedule looking stuck/broken.
+_current = {"id": None, "name": None, "since": None}
+
+
+def status() -> dict:
+    """What the scheduler is doing right now (for the Schedules page banner)."""
+    c = dict(_current)
+    return {"busy": c["id"] is not None, "current": c}
+
 _WORKSPACE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "workspaces", "scheduler")
 
@@ -151,7 +162,15 @@ def run_schedule(sid: int) -> dict:
     if not sch:
         return {"ok": False, "error": "no such schedule"}
     os.makedirs(_WORKSPACE, exist_ok=True)
+    _current.update(id=sid, name=sch.get("name"), since=time.time())
+    try:
+        return _run_schedule_inner(sch)
+    finally:
+        _current.update(id=None, name=None, since=None)
 
+
+def _run_schedule_inner(sch: dict) -> dict:
+    sid = sch["id"]
     prompt = sch["prompt"]
     if sch.get("knowledge_folder"):
         prompt += (f"\n\nWhen done, save your finding as a knowledge note in the "

@@ -51,7 +51,19 @@ class ActiveRun:
             try:
                 q.put_nowait(event)
             except queue.Full:
-                pass
+                # A slow/backgrounded tab fell behind. Rather than silently drop
+                # live events (the transcript would look complete but diverge),
+                # make room and leave ONE sentinel so the UI can offer a reload.
+                if not getattr(q, "_overflowed", False):
+                    q._overflowed = True
+                    try:
+                        q.get_nowait()
+                        q.put_nowait({
+                            "seq": -1, "type": "stream_overflow", "agent": None,
+                            "content": "Live stream fell behind — reload to see the "
+                                       "full transcript.", "meta": None})
+                    except (queue.Empty, queue.Full):
+                        pass
 
     def close(self):
         with self.lock:
@@ -65,10 +77,37 @@ class ActiveRun:
                 pass
 
 
+# Process-wide run gate. The per-run semaphore only bounds concurrency WITHIN
+# one run; nothing stopped several runs (or a run + a firing schedule) from each
+# hammering the single local Ollama at once — the exact oversubscription the
+# GPU-aware capacity cap exists to prevent. Size it from that same number.
+_RUN_SLOTS = None
+_SLOTS_LOCK = threading.Lock()
+
+
+def _run_slots() -> threading.BoundedSemaphore:
+    global _RUN_SLOTS
+    with _SLOTS_LOCK:
+        if _RUN_SLOTS is None:
+            cap = int(os.environ.get("MAX_CONCURRENT_RUNS", "0") or 0)
+            if cap <= 0:
+                try:
+                    import sysinfo
+                    cap = int(sysinfo.assess()["parallel"]["capacity"])
+                except Exception:  # noqa: BLE001 - default to serial when unknown
+                    cap = 1
+            _RUN_SLOTS = threading.BoundedSemaphore(max(1, cap))
+    return _RUN_SLOTS
+
+
 class RunManager:
     def __init__(self):
         self._runs = {}
         self._lock = threading.Lock()
+
+    def active_count(self) -> int:
+        with self._lock:
+            return len(self._runs)
 
     def get(self, run_id: int) -> ActiveRun:
         with self._lock:
@@ -109,6 +148,15 @@ class RunManager:
                 storage.add_event(run_id, active.seq, etype, agent, content, meta)
             active.publish(event)
 
+        slots = _run_slots()
+        got_slot = slots.acquire(blocking=False)
+        if not got_slot:
+            # Another run holds every slot — tell the viewer we're queued, then
+            # block here (the run row already exists, so it shows as pending).
+            emit("decision", content="Queued — waiting for a free run slot so we "
+                 "don't oversubscribe the local model server…")
+            slots.acquire()
+            got_slot = True
         try:
             concurrency = 1
             if team.get("settings", {}).get("parallel"):
@@ -161,6 +209,8 @@ class RunManager:
             emit("error", content=err)
             emit("run_end", content="", meta={"status": "error"})
         finally:
+            if got_slot:
+                slots.release()
             active.close()
             with self._lock:
                 self._runs.pop(run_id, None)

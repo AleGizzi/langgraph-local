@@ -239,11 +239,18 @@ _HEADER_RE = re.compile(
 
 
 def _safe_workspace_path(workspace: str, rel: str) -> str:
-    full = os.path.realpath(os.path.join(workspace, rel.lstrip("/")))
-    root = os.path.realpath(workspace)
-    if full != root and not full.startswith(root + os.sep):
-        raise ValueError("path escapes workspace")
-    return full
+    import paths
+    return paths.safe_join(workspace, rel)
+
+
+def is_no_tool_error(exc) -> bool:
+    """Whether a provider exception means 'this model can't bind tools'.
+
+    The signal is only available as substring text from langchain/Ollama, so
+    it is inherently brittle — keep the one match here and call it everywhere
+    (engine tool loop + app.py chat handler) so a wording change is one edit.
+    """
+    return "does not support tools" in str(exc).lower()
 
 
 def extract_files(content: str, workspace: str) -> list:
@@ -606,7 +613,7 @@ class TeamRunner:
                 try:
                     return self._tool_loop(agent, llm, tool_map, list(messages))
                 except Exception as e:  # noqa: BLE001 - translate stalls to a clear error
-                    if tool_list and "does not support tools" in str(e).lower():
+                    if tool_list and is_no_tool_error(e):
                         # Catalog was wrong/missing — remember and delegate.
                         _mark_no_tools(provider, agent["model"])
                         self.emit("decision", agent=agent["name"],

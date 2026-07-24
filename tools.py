@@ -153,8 +153,10 @@ def make_run_python(workspace: str):
         (files tool), then run it, then fix whatever the traceback shows.
         Times out after 30 seconds.
         """
-        full = os.path.realpath(os.path.join(root, path.lstrip("/")))
-        if full != root and not full.startswith(root + os.sep):
+        import paths
+        try:
+            full = paths.safe_join(root, path)
+        except ValueError:
             return "Error: path escapes the workspace"
         if not os.path.isfile(full):
             return _missing(path, root)
@@ -658,11 +660,8 @@ def make_workspace_tools(workspace: str):
     """File tools bound to a run's workspace directory (path-traversal safe)."""
 
     def _safe(path: str) -> str:
-        full = os.path.realpath(os.path.join(workspace, path.lstrip("/")))
-        if not full.startswith(os.path.realpath(workspace) + os.sep) and \
-                full != os.path.realpath(workspace):
-            raise ValueError("path escapes workspace")
-        return full
+        import paths
+        return paths.safe_join(workspace, path)
 
     def _syntax_error(path: str, content: str):
         """Reject a .py write that would not even parse.

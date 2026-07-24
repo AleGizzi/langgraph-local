@@ -138,6 +138,10 @@ def _validate_team(data: dict):
     if topology == "supervisor" and len(agents) < 2:
         abort(400, "supervisor topology needs a supervisor plus at least one worker")
     seen = set()
+    # Compute the valid tool/skill sets ONCE, not once per agent — the skills
+    # lookup is a SQLite query and was being re-run inside the loop (N+1).
+    valid_tools = tools_mod.valid_tool_names()
+    valid_skills = {s["name"] for s in storage.list_skills()}
     for a in agents:
         aname = (a.get("name") or "").strip()
         if not aname:
@@ -155,8 +159,6 @@ def _validate_team(data: dict):
         except (TypeError, ValueError):
             a["temperature"] = 0.7
         a["params"] = providers.clean_params(a.get("params"))
-        valid_tools = tools_mod.valid_tool_names()
-        valid_skills = {s["name"] for s in storage.list_skills()}
         a["tools"] = [t for t in (a.get("tools") or []) if t in valid_tools]
         a["skills"] = [s for s in (a.get("skills") or []) if s in valid_skills]
     graph = None
@@ -261,6 +263,22 @@ def _safe_tool_file(filename: str) -> str:
     return os.path.join(CUSTOM_TOOLS_DIR, filename)
 
 
+def _require_local():
+    """Refuse code-writing/executing endpoints for non-local callers.
+
+    The app assumes loopback (app.run binds 127.0.0.1), but the Docker image
+    binds 0.0.0.0 with no auth — and writing a custom tool file is arbitrary
+    code execution. Gate those endpoints on the request actually coming from
+    localhost, unless the operator explicitly opts in behind their own auth.
+    """
+    if os.environ.get("LAS_ALLOW_REMOTE") == "1":
+        return
+    if (request.remote_addr or "") not in ("127.0.0.1", "::1"):
+        abort(403, "This endpoint writes and runs code, so it is disabled for "
+                   "non-local requests. Set LAS_ALLOW_REMOTE=1 only if the app "
+                   "is behind trusted authentication.")
+
+
 @app.get("/api/tools/files/<filename>")
 def tool_file_get(filename):
     path = _safe_tool_file(filename)
@@ -272,6 +290,7 @@ def tool_file_get(filename):
 
 @app.put("/api/tools/files/<filename>")
 def tool_file_put(filename):
+    _require_local()
     path = _safe_tool_file(filename)
     code = (request.get_json(force=True) or {}).get("code", "")
     if not code.strip():
@@ -288,6 +307,7 @@ def tool_file_put(filename):
 
 @app.delete("/api/tools/files/<filename>")
 def tool_file_delete(filename):
+    _require_local()
     path = _safe_tool_file(filename)
     if os.path.isfile(path):
         os.remove(path)
@@ -677,7 +697,7 @@ def chat():
                 yield _sse(ev)
         except Exception as e:  # noqa: BLE001
             msg = f"{type(e).__name__}: {e}"
-            if "does not support tools" in msg.lower():
+            if engine.is_no_tool_error(e):
                 # The catalog thought this model could bind tools and the
                 # provider disagreed — remember that, so the NEXT message goes
                 # down the delegation path instead of erroring again.
@@ -705,6 +725,7 @@ def desktop_app_status():
 @app.post("/api/desktop-app/install")
 def desktop_app_install():
     """Run the install-desktop-app.sh installer (no root; user-local)."""
+    _require_local()
     import os
     import subprocess
     script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -718,6 +739,37 @@ def desktop_app_install():
     if p.returncode != 0:
         abort(500, (p.stderr or p.stdout or "install failed")[-300:])
     return jsonify({"ok": True, "output": (p.stdout or "").strip()[-400:]})
+
+
+# ---------------- voice dictation (local whisper) ----------------
+
+@app.get("/api/voice/available")
+def voice_available():
+    import voice
+    return jsonify({"available": voice.available()})
+
+
+@app.post("/api/voice/transcribe")
+def voice_transcribe():
+    """Transcribe an uploaded audio clip locally. Browser records it; we never
+    send audio anywhere off-device."""
+    import tempfile
+    import voice
+    f = request.files.get("audio")
+    if not f:
+        abort(400, "audio file is required (multipart field 'audio')")
+    suffix = os.path.splitext(f.filename or "")[1] or ".webm"
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        f.save(tmp.name)
+        tmp.close()
+        result = voice.transcribe(tmp.name)
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+    return jsonify(result)
 
 
 # ---------------- notifications ----------------
@@ -803,16 +855,35 @@ def resources_refresh():
                                      model=body.get("model")))
 
 
+# ---------------- project templates ----------------
+
+@app.get("/api/templates")
+def templates_list():
+    import templates
+    return jsonify({"templates": templates.list_templates()})
+
+
+@app.post("/api/templates/<tid>/instantiate")
+def templates_instantiate(tid):
+    """Turn a project blueprint into a real schedule / team / chat preset."""
+    import templates
+    result = templates.instantiate(tid)
+    if not result.get("ok"):
+        abort(400, result.get("error", "could not create from template"))
+    return jsonify(result)
+
+
 # ---------------- scheduled tasks ----------------
 
 @app.get("/api/schedules")
 def schedules_list():
+    import scheduler
     out = []
     for s in storage.list_schedules():
         s = dict(s)
         s["runs"] = storage.list_schedule_runs(s["id"], limit=200)
         out.append(s)
-    return jsonify({"schedules": out})
+    return jsonify({"schedules": out, "scheduler": scheduler.status()})
 
 
 @app.get("/api/schedules/runs/<int:rid>")
@@ -1397,6 +1468,38 @@ def decisions_list():
 def runs_list():
     team_id = request.args.get("team_id", type=int)
     return jsonify(storage.list_runs(team_id=team_id))
+
+
+@app.get("/api/runs/recent")
+def runs_recent():
+    """Telemetry rollup over the last N runs — turns the run log into a tuning
+    instrument: success rate, median wall-clock, and per-model accept rates."""
+    limit = min(200, max(5, request.args.get("limit", type=int) or 30))
+    runs = storage.list_runs(limit=limit)
+    durations, by_status, by_team = [], {}, {}
+    for r in runs:
+        st = r.get("status") or "unknown"
+        by_status[st] = by_status.get(st, 0) + 1
+        by_team[r.get("team_name") or "?"] = by_team.get(r.get("team_name") or "?", 0) + 1
+        if r.get("finished_at") and r.get("created_at"):
+            d = r["finished_at"] - r["created_at"]
+            if d >= 0:
+                durations.append(d)
+                r["duration_s"] = round(d, 1)
+    durations.sort()
+    median = durations[len(durations) // 2] if durations else None
+    done = by_status.get("done", 0)
+    counted = sum(by_status.values()) - by_status.get("running", 0)
+    summary = {
+        "count": len(runs),
+        "success_rate": round(done / counted, 2) if counted else None,
+        "median_duration_s": round(median, 1) if median is not None else None,
+        "by_status": by_status,
+        "by_team": sorted(by_team.items(), key=lambda kv: -kv[1])[:6],
+        "active": manager.active_count(),
+    }
+    return jsonify({"runs": runs, "summary": summary,
+                    "models": storage.decision_stats()})
 
 
 @app.get("/api/runs/<int:run_id>")
