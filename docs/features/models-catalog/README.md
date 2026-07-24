@@ -14,7 +14,7 @@ all HTTP scraping/parsing and arithmetic heuristics.
 
 | Path | Role |
 |------|------|
-| `catalog.py` | Scrapes `ollama.com/library`, caches to `data/model_catalog.json`, categorizes/ranks models, builds the dream team, assesses curated image-gen models. |
+| `catalog.py` | Scrapes `ollama.com/library`, caches to `data/model_catalog.json`, categorizes/ranks models, builds the dream team, assesses curated image-gen models, always-merges a curated **uncensored** list (`UNCENSORED_MODELS`). |
 | `sysinfo.py` | Hardware detection (CPU/RAM/GPU), provider install detection, per-model suitability verdicts, parallel-capacity estimate. |
 | `installer.py` | Model pulls (Ollama native `/api/pull`, LM Studio `lms` CLI) and first-run provider install (Ollama user-level from GitHub releases, LM Studio AppImage download). |
 | `providers.py` | `list_models()` / `provider_status()` — the live "what's actually loaded" discovery this feature displays. |
@@ -69,7 +69,18 @@ all HTTP scraping/parsing and arithmetic heuristics.
   is the offline fallback when there's no cache and no network.
 - **Categorization** (`classify`): heuristic regex over capability tags +
   name/description text → `coding`/`thinking`/`vision`/`agents`/`fast`/
-  `general` (not derived from the model weights themselves).
+  `uncensored`/`general` (not derived from the model weights themselves). The
+  `uncensored` tag comes from `_UNCENSORED_RE` (matches `dolphin`,
+  `*-uncensored`, `wizard-vicuna`, `nous-hermes`, `abliterated`, …).
+- **Uncensored models are always available.** `UNCENSORED_MODELS` is a curated
+  list of real `ollama.com/library` slugs (dolphin3, dolphin-llama3/mistral/
+  mixtral, llama2-uncensored, wizard-vicuna-uncensored, wizardlm-uncensored,
+  nous-hermes2). They rank below the exact-size scrape cutoff (fewer pulls) and
+  must survive an offline/builtin catalog, so `get_catalog` calls
+  `_merge_uncensored` to append any the scrape didn't already surface —
+  **a scraped entry always wins on a name collision** (keeps live pulls/size/
+  caps). The model card route reads the *merged* catalog (not raw
+  `load_cache()`) so these still supply size/description.
 - **Ranking + dream team** (`annotate`): per-category family popularity
   ranking, counting only families with ≥1 runnable (`great`/`ok`) variant;
   the dream-team pick for each category is the **largest `great`-verdict
@@ -132,6 +143,11 @@ table, and the catalog table):
 - **avoid** + **notes**: e.g. "no native tool use → don't give it tools in Chat
   (team runs auto-delegate)", "reasoning model: give it ≥2000 max tokens"
 - **suggested_params**: a sane starting temperature / max tokens / context
+- **Manual download link** (`ModelCard.jsx`, derived client-side from
+  `name`/`provider` — no backend field): Ollama models link to
+  `ollama.com/library/<slug>` and show the exact `ollama pull <name>` command;
+  LM Studio models link to a Hugging Face search. For when the one-click
+  installer can't reach a provider, or you want to grab GGUFs by hand.
 
 Scoring lives in `modelinfo.py` and is **deterministic — no LLM rates models**.
 Inputs: catalog capability tags (`tools`, `thinking`, `vision`), model family

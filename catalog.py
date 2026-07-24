@@ -42,6 +42,48 @@ BUILTIN_SNAPSHOT = [
     {"name": "deepseek-r1:7b", "base": "deepseek-r1", "size_gb": 4.7, "params_b": 7},
 ]
 
+# Curated uncensored / unfiltered models. These are real ollama.com/library
+# slugs, but they rank well below the exact-size scrape cutoff (fewer pulls)
+# and some users want them surfaced regardless of network state — so we always
+# merge them into the catalog (scraped entries win on a name collision). Sizes
+# are Q4_K_M approximations. Marked into the "uncensored" category by name.
+UNCENSORED_MODELS = [
+    {"name": "dolphin3:8b", "base": "dolphin3", "params_b": 8, "size_gb": 4.9,
+     "capabilities": ["tools"],
+     "description": "Dolphin 3.0 on Llama 3.1 8B — steerable, uncensored "
+                    "general-purpose assistant with native tool use."},
+    {"name": "dolphin-llama3:8b", "base": "dolphin-llama3", "params_b": 8, "size_gb": 4.7,
+     "capabilities": [],
+     "description": "Dolphin 2.9 fine-tune of Llama 3 8B — uncensored, obedient, "
+                    "a solid all-round local chat model."},
+    {"name": "dolphin-mistral:7b", "base": "dolphin-mistral", "params_b": 7, "size_gb": 4.1,
+     "capabilities": [],
+     "description": "Dolphin fine-tune of Mistral 7B — fast, unfiltered chat; "
+                    "a long-time community favourite."},
+    {"name": "dolphin-mixtral:8x7b", "base": "dolphin-mixtral", "params_b": 47, "size_gb": 26.0,
+     "capabilities": [],
+     "description": "Dolphin fine-tune of Mixtral 8x7B (mixture-of-experts) — "
+                    "strong uncensored reasoning; wants lots of RAM."},
+    {"name": "llama2-uncensored:7b", "base": "llama2-uncensored", "params_b": 7, "size_gb": 3.8,
+     "capabilities": [],
+     "description": "The classic uncensored Llama 2 7B — no built-in refusals."},
+    {"name": "wizard-vicuna-uncensored:7b", "base": "wizard-vicuna-uncensored",
+     "params_b": 7, "size_gb": 3.8, "capabilities": [],
+     "description": "Wizard-Vicuna 7B with alignment removed — direct, "
+                    "unfiltered answers."},
+    {"name": "wizard-vicuna-uncensored:13b", "base": "wizard-vicuna-uncensored",
+     "params_b": 13, "size_gb": 7.4, "capabilities": [],
+     "description": "13B Wizard-Vicuna uncensored — more capable unfiltered chat."},
+    {"name": "wizardlm-uncensored:13b", "base": "wizardlm-uncensored",
+     "params_b": 13, "size_gb": 7.4, "capabilities": [],
+     "description": "WizardLM 13B uncensored — instruction-following without "
+                    "content filtering."},
+    {"name": "nous-hermes2:10.7b", "base": "nous-hermes2", "params_b": 10.7, "size_gb": 6.1,
+     "capabilities": [],
+     "description": "Nous Hermes 2 (SOLAR 10.7B) — lightly-aligned, highly "
+                    "steerable assistant."},
+]
+
 _state = {"refreshing": False, "error": None}
 _lock = threading.Lock()
 
@@ -198,6 +240,7 @@ CATEGORIES = {
     "vision": {"icon": "👁️", "label": "Vision (images)"},
     "agents": {"icon": "🛠️", "label": "Agents & tool use"},
     "fast": {"icon": "⚡", "label": "Tiny & fast"},
+    "uncensored": {"icon": "🔓", "label": "Uncensored / unfiltered"},
 }
 
 _CODING_RE = re.compile(
@@ -206,6 +249,9 @@ _CODING_RE = re.compile(
 _THINKING_RE = re.compile(
     r"deepseek-r1|qwq|reason|thinking|\bthink\b|o1|cogito|phi4-reasoning|"
     r"exaone-deep|openthinker|marco-o1", re.I)
+_UNCENSORED_RE = re.compile(
+    r"uncensored|unfiltered|abliterated|\bdolphin\b|wizard-vicuna|"
+    r"wizardlm-uncensored|nous-hermes|open-?hermes|mistral-openorca", re.I)
 
 
 def classify(entry: dict) -> list:
@@ -221,6 +267,8 @@ def classify(entry: dict) -> list:
         cats.append("coding")
     if "tools" in caps:
         cats.append("agents")
+    if _UNCENSORED_RE.search(text):
+        cats.append("uncensored")
     params = entry.get("params_b")
     if params is not None and params <= 4:
         cats.append("fast")
@@ -353,6 +401,20 @@ def annotate(models: list) -> dict:
     return {"dream_team": dream}
 
 
+def _merge_uncensored(entries: list) -> list:
+    """Ensure the curated uncensored models are always present and installable.
+
+    They rank below the exact-size scrape cutoff (fewer pulls) and must survive
+    an offline/builtin catalog, so we append any that the scrape didn't already
+    surface. A scraped entry always wins on a name collision (keeps real pulls,
+    exact size, live capabilities)."""
+    have = {e.get("name") for e in entries}
+    for c in UNCENSORED_MODELS:
+        if c["name"] not in have:
+            entries.append(dict(c, pulls=0, pulls_label="", exact=False))
+    return entries
+
+
 def load_cache():
     try:
         with open(CACHE_PATH, encoding="utf-8") as f:
@@ -372,6 +434,7 @@ def get_catalog(auto_refresh: bool = True) -> dict:
                 "models": [dict(m, description="", capabilities=[], pulls=0,
                                 pulls_label="", exact=False)
                            for m in BUILTIN_SNAPSHOT]}
+    data["models"] = _merge_uncensored(data.get("models", []))
     data["refreshing"] = _state["refreshing"]
     data["error"] = _state["error"]
     return data

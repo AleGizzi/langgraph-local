@@ -21,6 +21,15 @@ export default function ModelCard({ name, provider = "ollama", onClose }) {
 
   if (!c) return null;
 
+  // Where you'd fetch this model by hand. Ollama's library page carries the
+  // exact `ollama pull` command + all tags; LM Studio models live on HF.
+  const slug = c.name.split(":")[0];
+  const manualUrl = c.provider === "lmstudio"
+    ? `https://huggingface.co/models?search=${encodeURIComponent(slug)}`
+    : `https://ollama.com/library/${slug}`;
+  const manualLabel = c.provider === "lmstudio"
+    ? "Find on Hugging Face" : "View on ollama.com";
+
   const spec = [
     ["Model ID", `${c.provider}/${c.name}`],
     ["Parameters", `${c.params_b}B`],
@@ -62,6 +71,18 @@ export default function ModelCard({ name, provider = "ollama", onClose }) {
                 {c.description}
               </div>
             )}
+            <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap",
+                          alignItems: "center", gap: 8 }}>
+              <a className="btn sm" href={manualUrl} target="_blank" rel="noreferrer"
+                title="Download / inspect this model by hand">
+                ⬇ {manualLabel}
+              </a>
+              {c.provider !== "lmstudio" && (
+                <code className="param-hint" style={{ fontFamily: "var(--mono)" }}>
+                  ollama pull {c.name}
+                </code>
+              )}
+            </div>
           </div>
 
           <div className="dex-stats">

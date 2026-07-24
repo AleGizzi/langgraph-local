@@ -217,7 +217,9 @@ def model_card():
 
     facts = {}
     base = name.split(":")[0].lower()
-    for m in (catalog_mod.load_cache() or {}).get("models", []):
+    # Merged catalog (not raw cache) so curated uncensored models — which never
+    # land in the scrape cache — still supply size/capabilities/description.
+    for m in catalog_mod.get_catalog(auto_refresh=False).get("models", []):
         if m.get("name") == name:
             facts = m
             break
