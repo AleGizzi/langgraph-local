@@ -148,6 +148,12 @@ table, and the catalog table):
   `ollama.com/library/<slug>` and show the exact `ollama pull <name>` command;
   LM Studio models link to a Hugging Face search. For when the one-click
   installer can't reach a provider, or you want to grab GGUFs by hand.
+- **"💬 Try it in Chat"** opens the Chat page pre-selected on *this* model. The
+  hash router keys on the path segment only (a `?query` would break it), so the
+  card stashes `{model, provider}` in `sessionStorage["chatModel"]`; Chat's
+  agent-state initializer consumes it once (then removes it) and, because
+  `agent.model` is now set, skips its qwen-first auto-pick. A later plain visit
+  to `#/chat` finds nothing stashed and falls back to the default.
 
 Scoring lives in `modelinfo.py` and is **deterministic — no LLM rates models**.
 Inputs: catalog capability tags (`tools`, `thinking`, `vision`), model family

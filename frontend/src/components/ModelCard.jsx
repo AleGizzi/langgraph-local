@@ -135,7 +135,14 @@ export default function ModelCard({ name, provider = "ollama", onClose }) {
             💬 <b>SUGGESTED START</b> temperature {c.suggested_params.temperature} ·
             max tokens {c.suggested_params.num_predict} · context {c.suggested_params.num_ctx}
           </span>
-          <button className="btn sm primary" onClick={() => (location.hash = "#/chat")}>
+          <button className="btn sm primary" onClick={() => {
+            // Hand the selected model to the Chat page (see its agent init).
+            try {
+              sessionStorage.setItem("chatModel", JSON.stringify(
+                { model: c.name, provider: c.provider }));
+            } catch { /* private mode: fall back to default */ }
+            location.hash = "#/chat";
+          }}>
             💬 Try it in Chat
           </button>
         </div>

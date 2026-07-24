@@ -44,9 +44,24 @@ function ContextGauge({ usage, msgCount, onNewChat, hallucAvg }) {
 export default function Chat({ personaId = null }) {
   const { models } = useApp();
   const [personas, setPersonas] = useState([]);
-  const [agent, setAgent] = useState({
-    name: "Chat", role: "", provider: "ollama", model: "",
-    system_prompt: "", params: {}, tools: [], skills: [],
+  const [agent, setAgent] = useState(() => {
+    // A model card's "Try it in Chat" hands off its selection here (the hash
+    // router keys on the path only, so a ?query would break routing — we pass
+    // it via sessionStorage instead). Consume it once so a later plain visit
+    // falls back to the auto-picked default.
+    let preset = {};
+    try {
+      const raw = sessionStorage.getItem("chatModel");
+      if (raw) {
+        sessionStorage.removeItem("chatModel");
+        const { model, provider } = JSON.parse(raw) || {};
+        if (model) preset = { model, provider: provider || "ollama" };
+      }
+    } catch { /* ignore malformed handoff */ }
+    return {
+      name: "Chat", role: "", provider: "ollama", model: "",
+      system_prompt: "", params: {}, tools: [], skills: [], ...preset,
+    };
   });
   const [messages, setMessages] = useState([]); // {role, content, tools:[]}
   const [input, setInput] = useState("");
