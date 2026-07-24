@@ -396,3 +396,16 @@ docker compose down -v   # -v removes volumes
 ---
 
 For more information on teams, agents, and runs, see [knowledge-base.md](knowledge-base.md).
+
+## Security: code-writing endpoints & remote binds (July 2026)
+
+The app assumes loopback — `python app.py` binds `127.0.0.1`. The Docker image,
+however, binds `0.0.0.0:5860` with no auth, and writing a custom tool file
+(`PUT /api/tools/files/<name>`) is arbitrary code execution. Those endpoints
+(custom-tool PUT/DELETE, the desktop-app installer) now call `_require_local()`
+and return **403 for non-loopback requests** unless you set `LAS_ALLOW_REMOTE=1`.
+
+If you expose the app beyond localhost (Docker on a shared network, a tunnel),
+put it behind your own authentication first, then set `LAS_ALLOW_REMOTE=1` to
+re-enable code editing. Leaving it unset keeps the dangerous endpoints local-only
+while everything else still works remotely.

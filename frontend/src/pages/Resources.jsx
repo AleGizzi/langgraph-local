@@ -29,9 +29,16 @@ export default function Resources() {
   const [promptDefault, setPromptDefault] = useState("");
   const [models, setModels] = useState([]);   // ["ollama/qwen2.5:7b", …]
   const [model, setModel] = useState("");     // "" = auto-pick
+  const [templates, setTemplates] = useState([]);
+  const onTemplates = cat === "templates";
 
   const load = () => api("/resources").then((d) => setItems(d.resources)).catch(() => {});
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (onTemplates && !templates.length) {
+      api("/templates").then((d) => setTemplates(d.templates)).catch(() => {});
+    }
+  }, [onTemplates]);
   useEffect(() => {
     api("/models").then((d) => {
       const out = [];
@@ -85,8 +92,22 @@ export default function Resources() {
   };
 
   const del = async (r) => {
+    if (!confirm(`Remove this link?\n\n${r.title || r.url}`)) return;
     await api(`/resources/${r.id}`, { method: "DELETE" });
     load();
+  };
+
+  const instantiate = async (t) => {
+    try {
+      const r = await api(`/templates/${t.id}/instantiate`, { method: "POST", body: {} });
+      // Chat templates hand a full preset to the Chat page via sessionStorage
+      // (same channel the model card uses), then we navigate there.
+      if (r.kind === "chat" && r.preset) {
+        sessionStorage.setItem("chatPreset", JSON.stringify(r.preset));
+      }
+      toast(r.message || "Created from template");
+      if (r.goto) location.hash = r.goto;
+    } catch (e) { toast(e.message, true); }
   };
 
   const shown = items.filter((r) => r.category === cat);
@@ -101,21 +122,69 @@ export default function Resources() {
             refresh any category with a web-researching agent.
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn" onClick={() => setEditingPrompt(!editingPrompt)}>
-            ✏️ Search prompt & model
-          </button>
-          <button className="btn" onClick={() => setAdding(!adding)}>＋ Add link</button>
-          <button className="btn primary" onClick={refresh} disabled={refreshing}>
-            {refreshing ? "🔎 Researching…" : "🔄 Refresh with agent"}
-          </button>
-        </div>
+        {!onTemplates && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn" onClick={() => setEditingPrompt(!editingPrompt)}>
+              ✏️ Search prompt & model
+            </button>
+            <button className="btn" onClick={() => setAdding(!adding)}>＋ Add link</button>
+            <button className="btn primary" onClick={refresh} disabled={refreshing}>
+              {refreshing ? "🔎 Researching…" : "🔄 Refresh with agent"}
+            </button>
+          </div>
+        )}
       </div>
 
-      <Tabs active={cat} onChange={setCat} tabs={Object.entries(CAT_META).map(([k, [ico, label]]) => ({
-        key: k, label: `${ico} ${label}`,
-        badge: items.filter((r) => r.category === k).length || undefined,
-      }))} />
+      <Tabs active={cat} onChange={setCat} tabs={[
+        ...Object.entries(CAT_META).map(([k, [ico, label]]) => ({
+          key: k, label: `${ico} ${label}`,
+          badge: items.filter((r) => r.category === k).length || undefined,
+        })),
+        { key: "templates", label: "🧩 Project templates" },
+      ]} />
+
+      {onTemplates && (
+        <>
+          <div className="help" style={{ margin: "4px 0 14px" }}>
+            Ready-to-run blueprints for what local models on this machine are actually
+            good at. Each one instantiates a real object you keep and reuse — a
+            scheduled task, a tool-building team, or a pre-configured chat. Nothing
+            fires on its own; schedules are created disabled for you to review.
+          </div>
+          {!templates.length ? (
+            <div className="loading-note"><span className="spin" />Loading templates…</div>
+          ) : (
+            <div className="tpl-grid">
+              {templates.map((t) => (
+                <div key={t.id} className={"tpl-card" + (t.star ? " star" : "")}>
+                  <h3>
+                    <span aria-hidden="true">{t.icon}</span> {t.title}
+                    {t.star && <span className="tpl-star">★ START HERE</span>}
+                  </h3>
+                  <p className="tpl-what">{t.what}</p>
+                  <div className="tpl-meta">
+                    <span className="tpl-tag">{t.group}</span>
+                    <span className="tpl-tag">{t.tier}</span>
+                    <span className="tpl-tag">effort {t.effort}</span>
+                  </div>
+                  <div className="tpl-real">{t.realism}</div>
+                  <div className="help" style={{ fontSize: 12 }}>Builds on: {t.builds_on}</div>
+                  <div className="tpl-actions">
+                    <button className="btn primary sm" onClick={() => instantiate(t)}>
+                      {t.kind === "schedule" ? "➕ Create schedule"
+                        : t.kind === "team" ? "➕ Create team"
+                        : "💬 Open in Chat"}
+                    </button>
+                    <span className="help" style={{ fontSize: 12 }}>→ {t.goto}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {!onTemplates && (<>
 
       {editingPrompt && (
         <div className="card" style={{ padding: 14, marginBottom: 12 }}>
@@ -197,6 +266,7 @@ export default function Resources() {
           </div>
         ))}
       </div>
+      </>)}
     </>
   );
 }

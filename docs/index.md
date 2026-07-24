@@ -17,9 +17,22 @@ everything — that's the point of this structure.
 | Skills, tools, AI wizards | [`features/skills-tools/`](features/skills-tools/README.md) | `tools.py`, `wizard.py`, `Toolbox.jsx`, `WizardPanel.jsx` |
 | Knowledge vault (Obsidian) | [`features/knowledge/`](features/knowledge/README.md) | `knowledge.py`, `Knowledge.jsx`, knowledge tools |
 | Scheduled agent tasks (cron) | [`features/schedules/`](features/schedules/README.md) | `scheduler.py`, `schedules` tables, `Schedules.jsx` |
-| AI news / resources (agent-refreshed) | [`features/resources/`](features/resources/README.md) | `resources.py`, `resources` table, `Resources.jsx` |
+| AI news / resources + **project templates** | [`features/resources/`](features/resources/README.md) | `resources.py`, `templates.py`, `resources` table, `Resources.jsx` |
 | Model catalog, installs, hardware assessment, provider setup | [`features/models-catalog/`](features/models-catalog/README.md) | `catalog.py`, `sysinfo.py`, `installer.py`, Models/Settings/Setup pages |
 | Image generation (Fooocus) | [`features/image-generation/`](features/image-generation/README.md) | `imagegen.py`, `ImageGen.jsx` |
+
+### Supporting modules (no feature folder of their own)
+
+| Module | Role |
+|--------|------|
+| `paths.py` | The single `safe_join()` path-traversal guard used by `engine` + `tools`. |
+| `voice.py` | Local dictation — transcribes an uploaded clip via faster-whisper (reuses the whisper-flow-local venv). Routes: `/api/voice/{available,transcribe}`. |
+| `templates.py` | Project blueprints instantiated from the Resources → Templates tab into a schedule / team / chat preset. |
+| `judge.py` | Deterministic hallucination-risk estimator (Chat). |
+| `router.py` / `modes.py` | Model-tier routing and run-mode (max-savings/balanced/quality) model shifting — see `features/teams-runs`. |
+| `notifications.py` | Desktop + in-app notifications for schedules. |
+| `sprites.py` | Persona species/stage system for Pokédex cards + Fooocus sprite prompts. |
+| `videomaker.py` | Experimental local video-generation assessment (Models page). |
 
 ## Cross-cutting docs
 

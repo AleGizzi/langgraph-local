@@ -178,3 +178,21 @@ There is **no** `run_start`, `agent_start`, `agent_end`, or `run_end` in chat
 5. Give the chat agent the `files` tool, write a file, start a second chat
    session, and confirm (per the shared-workspace gotcha) it can read the
    first chat's file back.
+
+## Local dictation, presets & autosave (July 2026)
+
+- **Dictate (fully local).** When `GET /api/voice/available` is true (needs
+  faster-whisper — `voice.py` reuses the whisper-flow-local venv or
+  `WHISPER_PYTHON`), a 🎤 button appears in the input bar. The browser records
+  the clip with MediaRecorder (on-device), POSTs it to
+  `POST /api/voice/transcribe` (multipart `audio`), and the returned text is
+  appended to the message box. No audio leaves the machine.
+- **Chat presets via sessionStorage.** Two hand-offs seed a fresh Chat: a model
+  card's "Try it in Chat" (`chatModel` = model only) and a project template's
+  chat preset (`chatPreset` = full agent config + `starter` text). The agent and
+  input state initializers consume whichever is present, once, then fall back to
+  the qwen-first auto-pick on a later plain visit.
+- **Autosave indicator.** `persist()` is still best-effort but now drives a
+  saving/✓ saved/⚠ not saved chip, so a silent save failure is visible.
+- The in-page config toggle is labelled **"⚙️ Model & persona"** (was
+  "⚙️ Settings", which read like the global Settings page).

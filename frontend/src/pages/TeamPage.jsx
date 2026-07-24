@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { api, toast } from "../lib/api.js";
 import Timeline, { useRunStream } from "../components/Timeline.jsx";
 import TeamEditor from "../components/TeamEditor.jsx";
+import { Loading } from "../components/Loading.jsx";
 
 function FlowPreview({ team }) {
   const s = team.settings || {};
@@ -86,7 +87,7 @@ export default function TeamPage({ teamId }) {
     await api(`/runs/${runId}/stop`, { method: "POST", body: {} }).catch(() => {});
   };
 
-  if (!team) return null;
+  if (!team) return <Loading what="team" />;
   return (
     <>
       <div className="team-head">

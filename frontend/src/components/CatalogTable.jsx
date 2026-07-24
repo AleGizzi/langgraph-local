@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, toast } from "../lib/api.js";
 import ModelCard from "./ModelCard.jsx";
+import { clickable } from "../lib/clickable.js";
 
 function ago(ts) {
   if (!ts) return "never";
@@ -135,13 +136,13 @@ export default function CatalogTable({ compact = false, withDreamTeam = false, d
         </div>
       )}
       <div className="cat-chips">
-        <span className={"tool-tag" + (cat === "all" ? " on" : "")}
-          onClick={() => setCat("all")}>All</span>
+        <button type="button" className={"tool-tag" + (cat === "all" ? " on" : "")}
+          aria-pressed={cat === "all"} onClick={() => setCat("all")}>All</button>
         {Object.entries(data.categories || {}).map(([key, c]) => (
-          <span key={key} className={"tool-tag" + (cat === key ? " on" : "")}
-            onClick={() => setCat(cat === key ? "all" : key)}>
+          <button type="button" key={key} className={"tool-tag" + (cat === key ? " on" : "")}
+            aria-pressed={cat === key} onClick={() => setCat(cat === key ? "all" : key)}>
             {c.icon} {c.label}
-          </span>
+          </button>
         ))}
         {cat !== "all" && <span className="help">ranked by family popularity among models that run here — 🥇🥈🥉 mark the top tiers</span>}
       </div>
@@ -181,7 +182,7 @@ export default function CatalogTable({ compact = false, withDreamTeam = false, d
                     {medal(m) && <span style={{ marginRight: 5 }}>{medal(m)}</span>}
                     <span className="mono model-pill-inline" title="What is this model best used for?"
                       style={{ fontFamily: "var(--mono)", fontSize: 12.5, cursor: "pointer" }}
-                      onClick={() => setCard(m.name)}>{m.name}</span>
+                      {...clickable(() => setCard(m.name), { label: `About ${m.name}` })}>{m.name}</span>
                     {(m.categories || []).filter((c) => c !== "general" || m.categories.length === 1).map((c) => (
                       <span key={c} className="chip" style={{ marginLeft: 6 }}
                         title={data.categories?.[c]?.label}>

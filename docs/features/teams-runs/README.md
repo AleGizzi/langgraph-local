@@ -248,3 +248,26 @@ Adapted from the portable agent-team framework to this local, no-billing world
   `sys_write_file`, `sys_edit_file` are refused on unattended runs (unless the
   schedule allows) and in max-savings mode. Threaded via `unattended` /
   `allow_destructive` on `TeamRunner` and `chat_stream`.
+
+## Reliability mechanics (July 2026 studio-review hardening)
+
+- **Process-wide run cap.** `runmanager._run_slots` is a module-level
+  `BoundedSemaphore` sized from the GPU-aware parallel capacity (override with
+  `MAX_CONCURRENT_RUNS`). `_execute` acquires a slot before compute; if none is
+  free the run row still exists (shows as pending) and emits a "Queued — waiting
+  for a free run slot" decision. Stops several runs + a schedule from
+  oversubscribing the single local Ollama (CLAUDE.md invariant #2, now enforced
+  across runs, not just within one).
+- **SSE overflow sentinel.** `ActiveRun.publish` no longer silently drops events
+  for a lagging tab — on `queue.Full` it makes room and leaves ONE
+  `stream_overflow` event so the client can offer a reload instead of showing a
+  transcript that looks complete but diverged.
+- **Stop from anywhere.** `RunDetail.jsx` shows a "■ Stop" button whenever the
+  run is live (`POST /runs/<id>/stop`), matching `TeamPage`.
+- **Telemetry rollup.** `GET /api/runs/recent?limit=` → `{runs, summary, models}`
+  where `summary` = count / success_rate / median_duration_s / by_status /
+  by_team / active. Surfaced as stat tiles on the Runs page; `models` is the
+  decision-log accept rates. `manager.active_count()` feeds `active`.
+- **One path guard.** `paths.safe_join(root, rel)` is the single traversal check
+  (was three copies in engine/tools); `engine.is_no_tool_error(exc)` is the
+  single "model can't bind tools" match (was duplicated in engine + app.py).

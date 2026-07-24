@@ -62,3 +62,27 @@ the user grows by hand or refreshes with a web-researching agent.
   fallback (verified: `model 'definitely-not-a-real-model:1b' not found`); a
   `model` in the refresh body must override it (verified: error named
   `override-model:7b` instead).
+
+## Project templates tab (July 2026)
+
+The Resources page has a fourth tab, **🧩 Project templates**, backed by
+`templates.py` (no AI — plain data). Each template is a curated project (from the
+studio review) with an `instantiate` that writes a REAL object:
+
+- `GET /api/templates` → display metadata for the cards.
+- `POST /api/templates/<id>/instantiate` → creates and returns
+  `{ok, kind, goto, message, id?/preset?}`:
+  - **schedule** → `storage.create_schedule` (created DISABLED — you review and
+    enable it), goto `#/schedules`.
+  - **team** → `storage.create_team` (e.g. "Personal Tool Forge", a
+    Builder+Verifier pipeline that writes a reusable Python tool and proves it
+    runs), goto `#/team/<id>`.
+  - **chat** → returns a `preset`; `Resources.jsx` stashes it in
+    `sessionStorage["chatPreset"]` and navigates to `#/chat`, where the Chat
+    initializer applies model + system prompt + tools + a starter message.
+- Models are resolved against what's actually installed at instantiate time
+  (`_pick` walks a preference ladder), so a template never points at a model you
+  don't have. Nothing fires on creation.
+
+Also: the resource-link delete now confirms first (it was the one silent,
+irreversible delete in the app).

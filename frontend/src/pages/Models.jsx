@@ -5,12 +5,13 @@ import ImageGen from "../components/ImageGen.jsx";
 import VideoMaker from "../components/VideoMaker.jsx";
 import ModelCard from "../components/ModelCard.jsx";
 import Tabs, { useTab } from "../components/Tabs.jsx";
+import { Loading } from "../components/Loading.jsx";
 
 export default function Models() {
   const { models, health } = useApp();
   const [card, setCard] = useState(null);
   const [tab, setTab] = useTab("models", "text");
-  if (!health) return null;
+  if (!health) return <Loading what="models" />;
   const groups = [
     ["ollama", "Ollama", health.providers.ollama],
     ["lmstudio", "LM Studio", health.providers.lmstudio],

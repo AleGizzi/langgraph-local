@@ -4,6 +4,7 @@ import { useApp } from "../App.jsx";
 import AgentFields from "../components/AgentFields.jsx";
 import WizardPanel from "../components/WizardPanel.jsx";
 import ViewToggle, { useViewMode } from "../components/ViewToggle.jsx";
+import { Loading } from "../components/Loading.jsx";
 
 /* ---------- deterministic card stats (mirrors sprites.py heuristics) ---------- */
 
@@ -240,7 +241,7 @@ export default function Personas({ embedded = false }) {
     load();
   };
 
-  if (!personas) return null;
+  if (!personas) return <Loading what="personas" />;
   return (
     <>
       <div className="page-head" style={embedded ? { marginBottom: 14 } : undefined}>

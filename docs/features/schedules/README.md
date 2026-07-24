@@ -120,3 +120,12 @@ New builtin tools used by templates: `system_info` (CPU/RAM/GPU/disk) and
 2. Pause (`PUT {enabled:false}`) → `next_run` shows "paused", thread skips it.
 3. Real one: "search the web for the USD/ARS blue rate, report the number"
    daily with a web-tool agent + a knowledge folder; watch the sparkline grow.
+
+## "Running now" banner (July 2026)
+
+Schedules run serially on one thread, so a long team run can delay every other
+due schedule by up to an hour. `scheduler.status()` → `{busy, current:{id,name,
+since}}` is now included in `GET /api/schedules` as the `scheduler` field, and
+`Schedules.jsx` shows a "Running '<name>' now — others wait" banner while busy,
+so a queued schedule reads as busy rather than stuck. `run_schedule` wraps the
+real work in `_run_schedule_inner` to set/clear `_current` in a `finally`.

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { api, fmtDur, fmtTime } from "../lib/api.js";
+import { api, fmtDur, fmtTime, toast } from "../lib/api.js";
 import Timeline, { itemsFromPersistedEvents, useRunStream } from "../components/Timeline.jsx";
+import { Loading } from "../components/Loading.jsx";
 
 export default function RunDetail({ runId }) {
   const [run, setRun] = useState(null);
@@ -13,7 +14,12 @@ export default function RunDetail({ runId }) {
   const isLive = run && run.status === "running";
   const { items: liveItems } = useRunStream(isLive ? runId : null, () => setLiveDone(true));
 
-  if (!run) return null;
+  const stop = async () => {
+    try { await api(`/runs/${runId}/stop`, { method: "POST", body: {} }); toast("Stopping run…"); }
+    catch (e) { toast(e.message, true); }
+  };
+
+  if (!run) return <Loading what="run" />;
   const items = isLive ? liveItems : itemsFromPersistedEvents(run);
   return (
     <>
@@ -25,7 +31,10 @@ export default function RunDetail({ runId }) {
             {run.error ? ` — ${run.error}` : ""}
           </p>
         </div>
-        <button className="btn" onClick={() => (location.hash = "#/runs")}>← All runs</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {isLive && <button className="btn danger" onClick={stop}>■ Stop</button>}
+          <button className="btn" onClick={() => (location.hash = "#/runs")}>← All runs</button>
+        </div>
       </div>
       <div className="card task-box">
         <div className="field">

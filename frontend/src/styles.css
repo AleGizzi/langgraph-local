@@ -181,8 +181,13 @@ input, textarea, select { font: inherit; color: var(--text); }
 }
 .chip.topo { background: var(--violet-soft); color: var(--violet); border-color: color-mix(in srgb, var(--violet) 35%, transparent); }
 .chip.loop { background: var(--amber-soft); color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
-.card-actions { position: absolute; top: 12px; right: 12px; display: none; gap: 4px; }
-.team-card:hover .card-actions { display: flex; }
+/* Hover-reveal card actions stay in the tab order (opacity, not display:none)
+   and also appear on keyboard focus, so they're reachable without a mouse. */
+.card-actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 4px;
+  opacity: 0; transition: opacity .12s; }
+.team-card:hover .card-actions,
+.team-card:focus-within .card-actions { opacity: 1; }
+@media (hover: none) { .card-actions { opacity: 1; } }
 .icon-btn {
   width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text-2); display: flex;
@@ -352,6 +357,7 @@ table.runs tbody tr:hover { background: var(--surface-2); }
 .tool-tag {
   font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2); font-weight: 600;
+  font-family: inherit; line-height: 1.4;
 }
 .tool-tag.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .switch-row { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text-2); }
@@ -1184,3 +1190,81 @@ table.assess .mono { font-family: var(--mono); font-size: 12.5px; }
   display: inline-block; height: 7px; width: var(--w); max-width: 80px;
   background: var(--green); border-radius: 4px; margin-right: 6px; vertical-align: middle;
 }
+
+/* ---- accessibility: one visible keyboard-focus ring for everything ---- */
+:where(button, a, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+}
+[role="button"] { cursor: pointer; }
+
+/* ---- shared loading / empty primitives ---- */
+.loading-note { color: var(--text-2); padding: 24px 4px; display: flex; gap: 10px;
+  align-items: center; font-size: 14px; }
+.loading-note .spin { width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .loading-note .spin { animation: none; } }
+
+/* ---- live-stream fell-behind banner ---- */
+.overflow-banner { background: var(--amber-soft); color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+  border-radius: var(--radius); padding: 8px 12px; margin: 8px 0; font-size: 13px;
+  display: flex; gap: 8px; align-items: center; }
+
+/* ---- chat: save-state + dictate ---- */
+.save-state { font-size: 12px; color: var(--text-3); display: inline-flex;
+  gap: 5px; align-items: center; }
+.save-state.err { color: var(--red); }
+.btn.recording { background: var(--red-soft); color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.btn.recording::before { content: "●"; margin-right: 5px;
+  animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .btn.recording::before { animation: none; } }
+
+/* ---- scheduler "running now" banner ---- */
+.sched-busy { background: var(--accent-soft); color: var(--accent);
+  border: 1px solid var(--accent-border); border-radius: var(--radius);
+  padding: 9px 13px; margin-bottom: 14px; font-size: 13px; display: flex;
+  gap: 9px; align-items: center; }
+.sched-busy .spin { width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent); animation: spin .7s linear infinite; }
+
+/* ---- run telemetry rollup ---- */
+.telemetry { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px; margin: 4px 0 18px; }
+.telemetry .stat { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px; }
+.telemetry .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-3); }
+.telemetry .stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums;
+  margin-top: 3px; }
+.telemetry .stat .v.good { color: var(--green); }
+.telemetry .stat .v.warn { color: var(--amber); }
+
+/* ---- runs search bar ---- */
+.runs-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.runs-bar input, .runs-bar select { padding: 7px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.runs-bar input { flex: 1 1 220px; }
+
+/* ---- project template cards (AI News → Templates tab) ---- */
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px; }
+.tpl-card { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 17px; display: flex; flex-direction: column;
+  gap: 9px; box-shadow: var(--shadow); }
+.tpl-card.star { border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-border), var(--shadow); }
+.tpl-card h3 { margin: 0; font-size: 15px; display: flex; align-items: baseline; gap: 8px; }
+.tpl-star { font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--accent);
+  font-family: var(--mono); }
+.tpl-what { color: var(--text-2); font-size: 13px; margin: 0; flex: 1; }
+.tpl-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.tpl-tag { font-size: 11px; font-family: var(--mono); padding: 2px 7px; border-radius: 100px;
+  background: var(--bg); border: 1px solid var(--border); color: var(--text-2); }
+.tpl-real { font-size: 12px; color: var(--text-3); border-left: 2px solid var(--border);
+  padding-left: 9px; }
+.tpl-actions { display: flex; gap: 8px; align-items: center; margin-top: 2px; }

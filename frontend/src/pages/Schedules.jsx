@@ -248,9 +248,12 @@ export default function Schedules() {
   const [expanded, setExpanded] = useState({});
   const [logRun, setLogRun] = useState(null);
   const [teams, setTeams] = useState([]);
+  const [sched, setSched] = useState(null); // scheduler status: {busy, current}
   useEffect(() => { api("/teams").then(setTeams).catch(() => {}); }, []);
 
-  const load = () => api("/schedules").then((d) => setSchedules(d.schedules)).catch(() => setSchedules([]));
+  const load = () => api("/schedules").then((d) => {
+    setSchedules(d.schedules); setSched(d.scheduler || null);
+  }).catch(() => setSchedules([]));
   useEffect(() => { load(); const t = window.setInterval(load, 15000); return () => window.clearInterval(t); }, []);
 
   const toggle = async (s) => {
@@ -280,6 +283,14 @@ export default function Schedules() {
         </div>
         <button className="btn primary" onClick={() => setEditing(null)}>＋ New schedule</button>
       </div>
+
+      {sched?.busy && (
+        <div className="sched-busy" role="status">
+          <span className="spin" aria-hidden="true" />
+          Running “{sched.current?.name || "a schedule"}” now — schedules run one at a
+          time, so others wait until this finishes.
+        </div>
+      )}
 
       {schedules && !schedules.length && (
         <div className="empty" style={{ padding: 40 }}>

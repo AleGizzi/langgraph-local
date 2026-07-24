@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../lib/api.js";
+import { clickable } from "../lib/clickable.js";
 import Tabs, { useTab } from "../components/Tabs.jsx";
 import Teams from "./Teams.jsx";
 import Personas from "./Personas.jsx";
@@ -70,7 +71,7 @@ function Dashboard() {
           ["Runs", d.totals.runs, "🗂️", null],
           ["Chats", d.totals.chats, "💬", null]].map(([label, n, ico, go]) => (
           <div key={label} className={"dash-tile" + (go ? " clickable" : "")}
-            onClick={go ? () => (location.hash = `#/agents/${go}`) : undefined}>
+            {...(go ? clickable(() => (location.hash = `#/agents/${go}`), { label }) : {})}>
             <div className="dash-tile-ico">{ico}</div>
             <div className="dash-tile-n">{n}</div>
             <div className="dash-tile-l">{label}</div>
@@ -85,8 +86,8 @@ function Dashboard() {
           {anyUsage ? d.persona_usage.filter((p) => p.chats + p.team_uses > 0).map((p) => {
             const total = p.chats + p.team_uses;
             return (
-              <div key={p.id} className="dash-bar-row"
-                onClick={() => (location.hash = `#/chat/${p.id}`)} title="Chat as this persona">
+              <div key={p.id} className="dash-bar-row" title="Chat as this persona"
+                {...clickable(() => (location.hash = `#/chat/${p.id}`), { label: `Chat as ${p.name}` })}>
                 <span className="dash-bar-label">{p.icon} {p.name}</span>
                 <div className="dash-bar"><div className="dash-bar-fill"
                   style={{ width: `${(total / maxUse) * 100}%` }} /></div>
@@ -106,7 +107,8 @@ function Dashboard() {
           {d.recent_runs.length ? d.recent_runs.map((r) => {
             const [ico, col] = RUN_STATUS[r.status] || ["•", "var(--text-3)"];
             return (
-              <div key={r.id} className="dash-row" onClick={() => (location.hash = `#/run/${r.id}`)}>
+              <div key={r.id} className="dash-row"
+                {...clickable(() => (location.hash = `#/run/${r.id}`), { label: `Run ${r.team_name}` })}>
                 <span style={{ color: col }}>{ico}</span>
                 <div className="dash-row-main">
                   <div className="dash-row-title">{r.team_name}</div>
@@ -121,7 +123,8 @@ function Dashboard() {
         <div className="card dash-card">
           <h3>💬 Recent chats</h3>
           {d.recent_chats.length ? d.recent_chats.map((c) => (
-            <div key={c.id} className="dash-row" onClick={() => (location.hash = "#/chat")}>
+            <div key={c.id} className="dash-row"
+              {...clickable(() => (location.hash = "#/chat"), { label: c.title })}>
               <span>💬</span>
               <div className="dash-row-main">
                 <div className="dash-row-title">{c.title}</div>
@@ -137,7 +140,8 @@ function Dashboard() {
         <div className="card dash-card">
           <h3>🎛️ Most-run teams</h3>
           {d.team_usage.some((t) => t.runs > 0) ? d.team_usage.filter((t) => t.runs > 0).map((t) => (
-            <div key={t.id} className="dash-row" onClick={() => (location.hash = `#/team/${t.id}`)}>
+            <div key={t.id} className="dash-row"
+              {...clickable(() => (location.hash = `#/team/${t.id}`), { label: t.name })}>
               <span>{t.icon}</span>
               <div className="dash-row-main"><div className="dash-row-title">{t.name}</div></div>
               <span className="dash-bar-n">{t.runs} run{t.runs !== 1 ? "s" : ""}</span>

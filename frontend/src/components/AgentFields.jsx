@@ -82,12 +82,14 @@ export function ToolsPicker({ selected, onChange }) {
   return (
     <div className="tools-row">
       {all.map((t) => (
-        <span
+        <button
+          type="button"
           key={t.name}
+          aria-pressed={(selected || []).includes(t.name)}
           className={"tool-tag" + ((selected || []).includes(t.name) ? " on" : "")}
           title={t.description + (t.custom ? ` (custom: ${t.file})` : "")}
           onClick={() => toggle(t.name)}
-        >{t.custom ? "🧩 " : ""}{t.name}</span>
+        >{t.custom ? "🧩 " : ""}{t.name}</button>
       ))}
       {!all.length && <span className="help">No tools available.</span>}
     </div>
@@ -103,12 +105,14 @@ export function SkillsPicker({ selected, onChange }) {
   return (
     <div className="tools-row">
       {skills.map((s) => (
-        <span
+        <button
+          type="button"
           key={s.id}
+          aria-pressed={(selected || []).includes(s.name)}
           className={"tool-tag" + ((selected || []).includes(s.name) ? " on" : "")}
           title={s.description}
           onClick={() => toggle(s.name)}
-        >{s.icon} {s.name}</span>
+        >{s.icon} {s.name}</button>
       ))}
       {!skills.length && (
         <span className="help">No skills yet — create them in Skills & Tools.</span>

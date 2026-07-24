@@ -6,6 +6,10 @@ import { Md } from "../lib/markdown.jsx";
 
 const fmtK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
 
+// Set by the agent-state initializer from a template chat preset, consumed by
+// the input-state initializer in the same render to seed the message box.
+let _pendingStarter = null;
+
 /* Context-window gauge: how full the model's working memory is. Numbers come
  * from the server's `usage` SSE event (real token counts when the provider
  * reports them, a chars/4 estimate otherwise — we show whichever is larger,
@@ -45,17 +49,29 @@ export default function Chat({ personaId = null }) {
   const { models } = useApp();
   const [personas, setPersonas] = useState([]);
   const [agent, setAgent] = useState(() => {
-    // A model card's "Try it in Chat" hands off its selection here (the hash
-    // router keys on the path only, so a ?query would break routing — we pass
-    // it via sessionStorage instead). Consume it once so a later plain visit
-    // falls back to the auto-picked default.
+    // Two hand-offs arrive via sessionStorage (the hash router keys on the path
+    // only, so a ?query would break routing): a model card's "Try it in Chat"
+    // (model only), and a project template's chat preset (full config). Consume
+    // whichever is present, once, so a later plain visit falls back to default.
     let preset = {};
     try {
-      const raw = sessionStorage.getItem("chatModel");
-      if (raw) {
-        sessionStorage.removeItem("chatModel");
-        const { model, provider } = JSON.parse(raw) || {};
-        if (model) preset = { model, provider: provider || "ollama" };
+      const full = sessionStorage.getItem("chatPreset");
+      if (full) {
+        sessionStorage.removeItem("chatPreset");
+        const p = JSON.parse(full) || {};
+        preset = {
+          name: p.name || "Chat", provider: p.provider || "ollama",
+          model: p.model || "", system_prompt: p.system_prompt || "",
+          params: p.params || {}, tools: p.tools || [], skills: p.skills || [],
+        };
+        _pendingStarter = p.starter || null;  // seed the input box below
+      } else {
+        const raw = sessionStorage.getItem("chatModel");
+        if (raw) {
+          sessionStorage.removeItem("chatModel");
+          const { model, provider } = JSON.parse(raw) || {};
+          if (model) preset = { model, provider: provider || "ollama" };
+        }
       }
     } catch { /* ignore malformed handoff */ }
     return {
@@ -63,8 +79,14 @@ export default function Chat({ personaId = null }) {
       system_prompt: "", params: {}, tools: [], skills: [], ...preset,
     };
   });
+  const [saveState, setSaveState] = useState("idle"); // idle|saving|saved|error
+  const [recording, setRecording] = useState(false);
+  const [voiceOk, setVoiceOk] = useState(false);
+  const recRef = useRef(null);
   const [messages, setMessages] = useState([]); // {role, content, tools:[]}
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => {
+    const s = _pendingStarter; _pendingStarter = null; return s || "";
+  });
   const [streaming, setStreaming] = useState(false);
   const [showConfig, setShowConfig] = useState(true);
   const [chats, setChats] = useState([]);
@@ -100,6 +122,7 @@ export default function Chat({ personaId = null }) {
       .map(({ role, content, name, model, seconds }) =>
         (name ? { role, content, name, model, seconds } : { role, content }));
     if (!clean.length) return;
+    setSaveState("saving");
     try {
       if (chatIdRef.current) {
         await api(`/chats/${chatIdRef.current}`, { method: "PUT",
@@ -111,10 +134,51 @@ export default function Chat({ personaId = null }) {
         setChatId(saved.id);
       }
       loadChats();
-    } catch { /* persistence is best-effort */ }
+      setSaveState("saved");
+    } catch {
+      // Persistence is best-effort, but a silent failure used to mean a chat
+      // could vanish with no warning — surface it instead.
+      setSaveState("error");
+    }
   };
 
   const newChat = () => { setChatId(null); setMessages([]); setUsage(null); };
+
+  // Local dictation: the browser records the clip (fully on-device), then we
+  // POST it to a local faster-whisper transcribe endpoint. Only offered when
+  // the server reports whisper is available.
+  useEffect(() => {
+    api("/voice/available").then((d) => setVoiceOk(!!d.available)).catch(() => {});
+  }, []);
+
+  const toggleDictation = async () => {
+    if (recording) { recRef.current?.stop(); return; }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast("This browser can't access the microphone", true); return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks = [];
+      const rec = new MediaRecorder(stream);
+      recRef.current = rec;
+      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+        toast("Transcribing locally…");
+        const fd = new FormData();
+        fd.append("audio", new Blob(chunks, { type: rec.mimeType || "audio/webm" }), "clip.webm");
+        try {
+          const r = await fetch("/api/voice/transcribe", { method: "POST", body: fd });
+          const d = await r.json();
+          if (d.ok && d.text) setInput((v) => (v ? v.trim() + " " : "") + d.text);
+          else toast(d.error || "Nothing transcribed", true);
+        } catch (e) { toast(e.message, true); }
+      };
+      rec.start();
+      setRecording(true);
+    } catch { toast("Microphone permission denied", true); }
+  };
 
   const openChat = async (c) => {
     try {
@@ -302,12 +366,20 @@ export default function Chat({ personaId = null }) {
               hyperparameters, tools and skills
             </p>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {saveState !== "idle" && (
+              <span className={"save-state" + (saveState === "error" ? " err" : "")}
+                title="Conversations are saved in the app database">
+                {saveState === "saving" ? "saving…"
+                  : saveState === "saved" ? "✓ saved"
+                  : "⚠ not saved"}
+              </span>
+            )}
             {messages.length > 0 && (
               <button className="btn" onClick={() => { setMessages([]); setUsage(null); }}>🧹 Clear</button>
             )}
             <button className="btn" onClick={() => setShowConfig(!showConfig)}>
-              {showConfig ? "Hide settings" : "⚙️ Settings"}
+              {showConfig ? "Hide settings" : "⚙️ Model & persona"}
             </button>
           </div>
         </div>
@@ -378,6 +450,12 @@ export default function Chat({ personaId = null }) {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
             }}
           />
+          {voiceOk && (
+            <button className={"btn" + (recording ? " recording" : "")} onClick={toggleDictation}
+              title={recording ? "Stop and transcribe" : "Dictate (local, on-device)"}>
+              {recording ? "Stop" : "🎤"}
+            </button>
+          )}
           {streaming
             ? <button className="btn danger" onClick={stop}>■ Stop</button>
             : <button className="btn primary" onClick={send} disabled={!input.trim()}>Send ➤</button>}
