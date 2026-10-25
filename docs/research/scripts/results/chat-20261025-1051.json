@@ -1,0 +1,11 @@
+[
+ {
+  "model": "qwen3:4b",
+  "wall_s": 33.5,
+  "load_s": 4.8,
+  "prefill_tps": 119.8,
+  "gen_tps": 7.7,
+  "tool_call": true,
+  "json_ok": false
+ }
+]

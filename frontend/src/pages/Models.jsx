@@ -59,6 +59,19 @@ export default function Models() {
           </div>
         </div>
       ))}
+      {(models.decision || []).length > 0 && (
+        <div className="model-group card" style={{ padding: 16 }}>
+          <h3>
+            🎯 Decision models
+            <span style={{ fontWeight: 400, color: "var(--text-3)", fontSize: 12 }}>
+              routing &amp; scoring only (no chat) — the auto-router uses them for one-pass task classification
+            </span>
+          </h3>
+          <div className="model-list">
+            {models.decision.map((m) => <span key={m} className="model-pill">{m}</span>)}
+          </div>
+        </div>
+      )}
       <div className="card section-card" style={{ marginTop: 16 }}>
         <h2>⬇ Get more models</h2>
         <div className="sub">

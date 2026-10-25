@@ -99,18 +99,20 @@ def _ollama_install():
             v = _run(["ollama", "--version"])
             vm = re.search(r"(\d+\.\d+[.\d]*)", v)
             info["version"] = vm.group(1) if vm else None
+    # One shared store: ~/.ollama/models (served by the user unit). The root
+    # /usr/share store is a legacy fallback, used only if it still holds blobs.
     candidates = [os.environ.get("OLLAMA_MODELS"),
-                  "/usr/share/ollama/.ollama/models",
-                  os.path.expanduser("~/.ollama/models")]
-    best = None
+                  os.path.expanduser("~/.ollama/models"),
+                  "/usr/share/ollama/.ollama/models"]
     for c in candidates:
-        if c and os.path.isdir(c):
+        if c and os.path.isdir(os.path.join(c, "blobs")):
             size = _dir_size_gb(c)
-            if best is None or size > best[1]:
-                best = (c, size)
-    if best:
-        info["models_dir"], info["models_size_gb"] = best
-    if _run(["systemctl", "is-active", "ollama"]) == "active":
+            if size > 0.01:
+                info["models_dir"], info["models_size_gb"] = c, size
+                break
+    if _run(["systemctl", "--user", "is-active", "ollama"]) == "active":
+        info["service"] = "systemd user unit (systemctl --user … ollama)"
+    elif _run(["systemctl", "is-active", "ollama"]) == "active":
         info["service"] = "systemd (ollama.service)"
     return info
 
@@ -159,10 +161,11 @@ INSTALL_GUIDES = {
         "site": "https://ollama.com/download",
         "steps": [
             {"text": "Install with the official script", "cmd": "curl -fsSL https://ollama.com/install.sh | sh"},
-            {"text": "The installer registers a systemd service; check it is running", "cmd": "systemctl status ollama"},
+            {"text": "The installer registers a root systemd service storing models in /usr/share/ollama. To keep ONE model store in your home (~/.ollama/models) shared by every app, disable it and run Ollama as a user service instead", "cmd": "sudo systemctl disable --now ollama\nmkdir -p ~/.config/systemd/user\ncat > ~/.config/systemd/user/ollama.service <<'UNIT'\n[Unit]\nDescription=Ollama (user, ~/.ollama)\n[Service]\nExecStart=/usr/local/bin/ollama serve\nEnvironment=OLLAMA_HOST=127.0.0.1:11434\nEnvironment=OLLAMA_MODELS=%h/.ollama/models\nEnvironment=OLLAMA_MAX_LOADED_MODELS=1\nEnvironment=OLLAMA_KEEP_ALIVE=30m\nEnvironment=OLLAMA_FLASH_ATTENTION=1\nRestart=always\n[Install]\nWantedBy=default.target\nUNIT\nsystemctl --user daemon-reload && systemctl --user enable --now ollama"},
+            {"text": "Check it is running", "cmd": "systemctl --user status ollama"},
             {"text": "Pull a model suited to your hardware (see assessment below)", "cmd": "ollama pull qwen2.5:7b"},
             {"text": "Test it from the terminal", "cmd": "ollama run qwen2.5:7b \"hello\""},
-            {"text": "The API listens on http://localhost:11434 by default. Models are stored in /usr/share/ollama/.ollama/models (service install) or ~/.ollama/models (user install)."},
+            {"text": "The API listens on http://localhost:11434 by default. Models live in ~/.ollama/models (user service, recommended) — or /usr/share/ollama/.ollama/models if you kept the root service. Pick one; two stores means duplicate downloads."},
         ],
     },
     "lmstudio": {

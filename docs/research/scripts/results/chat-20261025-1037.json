@@ -1,0 +1,11 @@
+[
+ {
+  "model": "lfm2.5:8b",
+  "wall_s": 22.2,
+  "load_s": 7.8,
+  "prefill_tps": 209.6,
+  "gen_tps": 16.6,
+  "tool_call": true,
+  "json_ok": false
+ }
+]

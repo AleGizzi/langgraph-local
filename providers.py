@@ -77,18 +77,29 @@ _EMBED_HINTS = ("embed", "embedding", "bge-", "nomic-embed")
 
 def _is_chat_model(name: str) -> bool:
     low = name.lower()
-    return not any(h in low for h in _EMBED_HINTS)
+    return not any(h in low for h in _EMBED_HINTS) and not is_decision_model(name)
+
+
+# Ollama "decision" models (kev/tev1/d3/…): they score typed questions via
+# /v1/systemone and cannot chat, so they are listed apart from chat models.
+DECISION_MODELS = ["tev1", "strands-decider", "kev", "d3", "nimble", "nimble-v3",
+                   "clef-flash", "pplx-decider", "laya"]
+
+
+def is_decision_model(name: str) -> bool:
+    base = name.split(":", 1)[0].lower()
+    return base in DECISION_MODELS
 
 
 def list_models() -> dict:
     """Return {"ollama": [...], "lmstudio": [...], "errors": {...}}."""
-    out = {"ollama": [], "lmstudio": [], "errors": {}}
+    out = {"ollama": [], "lmstudio": [], "decision": [], "errors": {}}
     try:
         r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=3)
         r.raise_for_status()
-        out["ollama"] = sorted(
-            m["name"] for m in r.json().get("models", []) if _is_chat_model(m["name"])
-        )
+        names = [m["name"] for m in r.json().get("models", [])]
+        out["ollama"] = sorted(n for n in names if _is_chat_model(n))
+        out["decision"] = sorted(n for n in names if is_decision_model(n))
     except Exception as e:  # noqa: BLE001 - provider down is expected
         out["errors"]["ollama"] = str(e)
     try:

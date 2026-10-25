@@ -15,11 +15,12 @@ all HTTP scraping/parsing and arithmetic heuristics.
 | Path | Role |
 |------|------|
 | `catalog.py` | Scrapes `ollama.com/library`, caches to `data/model_catalog.json`, categorizes/ranks models, builds the dream team, assesses curated image-gen models, always-merges a curated **uncensored** list (`UNCENSORED_MODELS`). |
-| `sysinfo.py` | Hardware detection (CPU/RAM/GPU), provider install detection, per-model suitability verdicts, parallel-capacity estimate. |
+| `sysinfo.py` | Hardware detection (CPU/RAM/GPU), provider install detection (model store: `$OLLAMA_MODELS` → `~/.ollama/models` → legacy `/usr/share` only if it holds blobs; user `ollama` unit detected before the system one), per-model suitability verdicts, parallel-capacity estimate. |
 | `installer.py` | Model pulls (Ollama native `/api/pull`, LM Studio `lms` CLI) and first-run provider install (Ollama user-level from GitHub releases, LM Studio AppImage download). |
-| `providers.py` | `list_models()` / `provider_status()` — the live "what's actually loaded" discovery this feature displays. |
+| `providers.py` | `list_models()` / `provider_status()` — the live "what's actually loaded" discovery this feature displays. Decision models (`DECISION_MODELS`: kev, tev1, d3…) are returned under `decision`, never in the chat lists. |
+| `deploy/link-ollama-to-lmstudio.py` | Symlinks every Ollama model's GGUF blob into `~/.lmstudio/models/ollama/` so LM Studio shares the single store (re-run after pulls/removals). |
 | `app.py` | `/api/models`, `/api/health`, `/api/system`, `/api/setup/install`, `/api/catalog*`, `/api/install*`, `/api/params`. |
-| `frontend/src/pages/Models.jsx` | Discovered models + catalog table + embeds `ImageGen` (install/run Fooocus — see `docs/features/image-generation/`). |
+| `frontend/src/pages/Models.jsx` | Discovered models (chat groups + a 🎯 decision-models group) + catalog table + embeds `ImageGen` (install/run Fooocus — see `docs/features/image-generation/`). |
 | `frontend/src/pages/Settings.jsx` | Hardware, parallel capacity, installed-model verdicts, dream team, full catalog, `ImageModels` (curated image-gen VRAM table). |
 | `frontend/src/pages/Setup.jsx` | Provider install wizards + install guides. |
 | `frontend/src/components/CatalogTable.jsx` | Searchable/filterable catalog table, install buttons + progress, dream-team cards. |
@@ -162,6 +163,16 @@ verdict, plus `engine._tool_support_cache` (runtime truth about builds that
 actually reject tool binding, which beats the catalog's family-wide tag).
 
 ## Gotchas
+
+- **Decision models are not chat models.** Models tagged `decision` on
+  ollama.com (kev, tev1, d3, nimble…) only answer `/v1/systemone` typed
+  questions. `catalog.classify` gives them only the 🎯 `decision` category and
+  `providers.list_models` keeps them out of every chat picker. Some publish
+  **MLX-only** builds (e.g. `strands-decider`) that fail on Linux CUDA/CPU with
+  "requires MLX support".
+- **Newest models need a new Ollama.** 0.22.x gets `412 … requires a newer
+  version` for 2026-H2 models. See `docs/research/model-store.md` for the
+  user-local upgrade.
 
 - **Model scores are relative, not benchmarks.** They answer "which of MY
   models should I point at this job?" Bonuses are capped at `size_score + 2`

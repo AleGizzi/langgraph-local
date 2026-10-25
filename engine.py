@@ -174,7 +174,7 @@ def salvage_tool_calls(content: str, tool_names) -> list:
 
 # Blast radius: tools that change files on the real machine or execute arbitrary
 # code — irreversible / consequential, unlike the sandboxed workspace file tools.
-_DESTRUCTIVE_TOOLS = {"run_python", "sys_write_file", "sys_edit_file"}
+_DESTRUCTIVE_TOOLS = {"run_python", "sys_write_file", "sys_edit_file", "hermes_agent"}
 
 
 def blast_radius_block(name: str, unattended: bool = False,

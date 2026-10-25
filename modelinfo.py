@@ -51,6 +51,15 @@ FAMILY_TRAITS = {
     "smollm2": ({"speed": +2, "problem_solving": -2},
                 "Ultra-small: quick, simple replies."),
     "llava": ({"coding": -2}, "Vision model: describes images."),
+    # Oct 2026 families — nudges from docs/research/small-models.md measurements.
+    "gemma4": ({"tool_use": +2, "execution": +1, "writing": +1},
+               "Native tool calling + clean JSON; e2b/e4b are fast, 26b is MoE (3.8B active)."),
+    "qwen3.5": ({"tool_use": +1, "execution": +1}, "Tools, vision and 256k context in small sizes."),
+    "lfm2.5": ({"speed": +3, "tool_use": +1, "execution": -1},
+               "~1B active: fastest tool caller here; loose with strict JSON."),
+    "granite4": ({"tool_use": +1, "speed": +1}, "IBM, Apache-2.0; solid small tool user."),
+    "bonsai-2": ({"problem_solving": +1}, "Ternary 9B in 3.2 GB — most quality per GB."),
+    "nemotron-3": ({"tool_use": +1}, "NVIDIA agentic models; listed for Hermes Agent."),
 }
 
 # aptitude → concrete jobs in THIS app. (aptitude, min score, title, why)

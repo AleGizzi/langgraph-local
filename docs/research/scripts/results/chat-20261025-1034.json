@@ -1,0 +1,11 @@
+[
+ {
+  "model": "bonsai-2:9b",
+  "wall_s": 71.6,
+  "load_s": 30.4,
+  "prefill_tps": 53.0,
+  "gen_tps": 6.1,
+  "tool_call": true,
+  "json_ok": true
+ }
+]

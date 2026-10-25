@@ -1,0 +1,11 @@
+[
+ {
+  "model": "gemma4:26b",
+  "wall_s": 69.7,
+  "load_s": 33.6,
+  "prefill_tps": 65.1,
+  "gen_tps": 6.4,
+  "tool_call": true,
+  "json_ok": true
+ }
+]

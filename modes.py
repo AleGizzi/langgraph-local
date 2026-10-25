@@ -40,7 +40,7 @@ def apply_mode(team: dict, mode: str, models_by_provider: dict) -> dict:
     # Group each provider's installed models by family, sorted small→large.
     by_prov_fam = {}
     for prov, names in (models_by_provider or {}).items():
-        if not isinstance(names, list):   # skip the "errors" entry, etc.
+        if prov == "decision" or not isinstance(names, list):   # skip "errors", non-chat models
             continue
         fam = {}
         for mn in names:

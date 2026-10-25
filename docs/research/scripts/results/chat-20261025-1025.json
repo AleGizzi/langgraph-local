@@ -1,0 +1,11 @@
+[
+ {
+  "model": "nemotron-3-nano:4b",
+  "wall_s": 37.3,
+  "load_s": 7.3,
+  "prefill_tps": 77.7,
+  "gen_tps": 5.8,
+  "tool_call": true,
+  "json_ok": false
+ }
+]

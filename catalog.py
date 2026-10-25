@@ -241,6 +241,7 @@ CATEGORIES = {
     "agents": {"icon": "🛠️", "label": "Agents & tool use"},
     "fast": {"icon": "⚡", "label": "Tiny & fast"},
     "uncensored": {"icon": "🔓", "label": "Uncensored / unfiltered"},
+    "decision": {"icon": "🎯", "label": "Decision (routing / scoring, no chat)"},
 }
 
 _CODING_RE = re.compile(
@@ -258,6 +259,9 @@ def classify(entry: dict) -> list:
     """Assign use-case categories from registry capabilities + name/description."""
     caps = [c.lower() for c in entry.get("capabilities") or []]
     text = f"{entry.get('base', '')} {entry.get('description', '')}"
+    if "decision" in caps:
+        # /v1/systemone scorers (kev, tev1, d3…): never offer them as chat models.
+        return ["decision"]
     cats = []
     if "vision" in caps:
         cats.append("vision")

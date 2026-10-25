@@ -1,0 +1,11 @@
+[
+ {
+  "model": "granite4.2:3b",
+  "wall_s": 34.6,
+  "load_s": 8.0,
+  "prefill_tps": 126.0,
+  "gen_tps": 8.1,
+  "tool_call": true,
+  "json_ok": false
+ }
+]

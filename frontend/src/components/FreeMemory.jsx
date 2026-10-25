@@ -25,12 +25,12 @@ const OS_STEPS = [
   {
     title: "Give Ollama a shorter keep-alive",
     body: "By default Ollama keeps a model in RAM for 5 minutes after use. Shorten it so memory returns sooner (Pop!_OS/Ubuntu use systemd):",
-    cmd: "sudo systemctl edit ollama\n# add:\n[Service]\nEnvironment=\"OLLAMA_KEEP_ALIVE=30s\"\n\nsudo systemctl restart ollama",
+    cmd: "systemctl --user edit ollama   # user service (models in ~/.ollama)\n# add:\n[Service]\nEnvironment=\"OLLAMA_KEEP_ALIVE=30s\"\n\nsystemctl --user restart ollama",
   },
   {
     title: "Let one model use more of the machine",
     body: "Ollama can also be told to keep only one model resident at a time (avoids two big models coexisting):",
-    cmd: "sudo systemctl edit ollama\n# add:\n[Service]\nEnvironment=\"OLLAMA_MAX_LOADED_MODELS=1\"\n\nsudo systemctl restart ollama",
+    cmd: "systemctl --user edit ollama   # user service (models in ~/.ollama)\n# add:\n[Service]\nEnvironment=\"OLLAMA_MAX_LOADED_MODELS=1\"\n\nsystemctl --user restart ollama",
   },
   {
     title: "Add zram / swap as a safety net (Pop!_OS)",

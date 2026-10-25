@@ -34,6 +34,12 @@ everything — that's the point of this structure.
 | `sprites.py` | Persona species/stage system for Pokédex cards + Fooocus sprite prompts. |
 | `videomaker.py` | Experimental local video-generation assessment (Models page). |
 
+## Research & proposals
+
+| Doc | What |
+|-----|------|
+| [`research/README.md`](research/README.md) | 2026-10-25: single model store, Ollama upgrade, Hermes Agent, small/efficient + decision ("Jev") models measured on this machine, UI proposals. |
+
 ## Cross-cutting docs
 
 | Doc | When |

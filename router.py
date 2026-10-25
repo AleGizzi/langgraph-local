@@ -82,14 +82,67 @@ def _classify_model(models: dict):
     return inst[0] if inst else ("ollama", "")
 
 
+# Ollama "decision" models (Jev Decision Index family) answer a typed choice in
+# ONE forward pass with probabilities via /v1/systemone — no generation, no JSON
+# to repair. Preferred over the chat-model classifier when one is installed.
+# Preference order; providers.list_models reports installed ones under "decision".
+DECISION_PREFERENCE = ["tev1", "d3", "kev", "nimble"]  # measured: docs/research/small-models.md
+
+_KIND_CRITERIA = {
+    "trivial": "a greeting, a one-line fact, a tiny transformation",
+    "general": "a normal question or short writing task",
+    "code": "writing or fixing a small/medium program",
+    "code_hard": "a large, multi-file or tricky program needing the strongest coder",
+    "research": "needs current info from the web",
+    "reasoning": "multi-step logic, math, planning, careful analysis",
+    "creative": "story, brainstorm, marketing copy, tone-heavy writing",
+}
+
+
+def _decision_model(models: dict):
+    for want in DECISION_PREFERENCE:
+        for m in (models.get("decision") or []):
+            if m == want or m.startswith(want + ":"):
+                return m
+    return None
+
+
+def _classify_decision(request: str, model: str):
+    """(kind, reason) from a decision model, or None if the call fails."""
+    import requests
+    from providers import OLLAMA_URL
+    try:
+        r = requests.post(f"{OLLAMA_URL}/v1/systemone", timeout=60, json={
+            "model": model,
+            # decision models run with a ~2k-token working context: keep it short
+            "state": request.strip()[:1200],
+            "questions": {"kind": {
+                "type": "choice",
+                "instructions": "Which kind of task is this request?",
+                "criteria": _KIND_CRITERIA}}})
+        r.raise_for_status()
+        ans = (r.json().get("answers") or {}).get("kind") or {}
+        k = str(ans.get("choice", "")).strip().lower()
+        if k in TIER_PREFERENCE:
+            return k, f"p={float(ans.get('probabilities', {}).get(k, 0)):.2f}"
+    except Exception:  # noqa: BLE001 - fall back to the chat-model classifier
+        pass
+    return None
+
+
 def classify(request: str, models: dict) -> dict:
     """One cheap call → {kind, model, provider, tools, reason}. Never raises;
     falls back to 'general' on any parse failure."""
     from providers import make_llm
-    cprov, cmodel = _classify_model(models)
     kind = "general"
     reason = "default"
-    if cmodel:
+    dmodel = _decision_model(models)
+    decided = _classify_decision(request, dmodel) if dmodel else None
+    if decided:
+        (kind, reason), cmodel = decided, dmodel
+    else:
+        cprov, cmodel = _classify_model(models)
+    if cmodel and not decided:
         try:
             llm = make_llm(cprov, cmodel, {"temperature": 0.0, "num_predict": 80})
             out = llm.invoke(_CLASSIFY_PROMPT.format(request=request.strip()[:1200]))

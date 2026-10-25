@@ -1,0 +1,81 @@
+[
+ {
+  "model": "tev1:0.8b",
+  "decision": true,
+  "accuracy": "13/14",
+  "first_s": 4.35,
+  "median_warm_s": 0.41,
+  "rows": [
+   {
+    "text": "hi there!",
+    "want": "trivial",
+    "got": "trivial"
+   },
+   {
+    "text": "convert 5 miles to km",
+    "want": "trivial",
+    "got": "trivial"
+   },
+   {
+    "text": "what is the difference between a process and a thread?",
+    "want": "general",
+    "got": "reasoning"
+   },
+   {
+    "text": "write a short email asking my landlord to fix the heater",
+    "want": "general",
+    "got": "general"
+   },
+   {
+    "text": "write a python function that removes duplicates from a list keeping order",
+    "want": "code",
+    "got": "code"
+   },
+   {
+    "text": "fix this bash script: for f in *.txt do echo $f done",
+    "want": "code",
+    "got": "code"
+   },
+   {
+    "text": "build a multi-file Flask app with auth, SQLAlchemy models, migrations and tests",
+    "want": "code_hard",
+    "got": "code_hard"
+   },
+   {
+    "text": "refactor this 3000-line legacy C++ module into separate classes with unit tests",
+    "want": "code_hard",
+    "got": "code_hard"
+   },
+   {
+    "text": "what are today's top headlines about local LLMs?",
+    "want": "research",
+    "got": "research"
+   },
+   {
+    "text": "find the latest Ollama release notes and summarize them",
+    "want": "research",
+    "got": "research"
+   },
+   {
+    "text": "a train leaves at 3pm at 80km/h, another at 4pm at 100km/h; when does the second catch up?",
+    "want": "reasoning",
+    "got": "reasoning"
+   },
+   {
+    "text": "plan a 3-step migration of a database with zero downtime and justify each step",
+    "want": "reasoning",
+    "got": "reasoning"
+   },
+   {
+    "text": "write a haiku about a sleepy GPU",
+    "want": "creative",
+    "got": "creative"
+   },
+   {
+    "text": "brainstorm 10 catchy names for a fitness app",
+    "want": "creative",
+    "got": "creative"
+   }
+  ]
+ }
+]

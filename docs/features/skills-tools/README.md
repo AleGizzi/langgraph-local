@@ -22,6 +22,7 @@ skill- and tool-drafting (the team-drafting half lives in
 | `storage.py` | `skills` table. |
 | `seeds.py` | `SEED_SKILLS` — 5 builtin skills. |
 | `custom_tools/create_file.py`, `custom_tools/word_count.py` | Example custom tool files (also live examples for the loader). |
+| `custom_tools/hermes_agent.py` | Delegates a task to Hermes Agent (`hermes -z`, ~3–5 min on CPU). Gated as destructive (`engine._DESTRUCTIVE_TOOLS`). See `docs/research/hermes.md`. |
 | `frontend/src/pages/Toolbox.jsx` | Skills gallery + `SkillEditor` modal; custom tool file list + `ToolFileEditor` modal. |
 | `frontend/src/components/WizardPanel.jsx` | Shared AI-draft panel (`kind="skill"\|"tool"\|"team"`), embedded in `Toolbox.jsx` and `TeamEditor.jsx`. |
 

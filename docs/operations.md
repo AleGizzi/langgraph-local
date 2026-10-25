@@ -180,7 +180,7 @@ All paths default to subdirectories under the project root. In Docker, these are
 | `AGENTS_WORKSPACES` | `{project}/data/workspaces` | Directory containing per-run workspace directories |
 | `AGENTS_KNOWLEDGE` | `{project}/data/knowledge` | Markdown vault (Obsidian/Logseq-compatible) for shared knowledge |
 | `AGENTS_CUSTOM_TOOLS` | `{project}/custom_tools` | Directory of custom tool Python modules |
-| `OLLAMA_MODELS` | (auto-detected) | Path to Ollama models directory; used by system info to estimate storage |
+| `OLLAMA_MODELS` | `~/.ollama/models` (auto-detected) | Path to the single Ollama model store (see `docs/research/model-store.md`); used by system info to estimate storage |
 | `RUNNING_IN_DOCKER` | (unset) | Set to `1` inside Docker; disables native provider installer |
 | `FOOOCUS_URL` | `http://localhost:8888` | Fooocus-API server base URL for image generation |
 | `FOOOCUS_DIR` | `~/.local/share/local-agents-studio/fooocus-api` | Directory where Fooocus-API repo is cloned and venv is created |
@@ -188,6 +188,7 @@ All paths default to subdirectories under the project root. In Docker, these are
 | `IMAGEGEN_TIMEOUT` | `2400` | Timeout in seconds for polling image generation jobs; increase for low-VRAM GPUs |
 | `IMAGEGEN_PERFORMANCE` | `Extreme Speed` | Default Fooocus performance preset (one of: `Extreme Speed`, `Lightning`, `Hyper-SD`, `Speed`, `Quality`) |
 | `TOOL_DELEGATE_MODEL` | (auto-picked) | Executor model for tool delegation, `provider::model` or bare model name; auto-selects a tool-capable model when unset |
+| `HERMES_TOOL_TIMEOUT` | `1800` | Seconds the `hermes_agent` custom tool waits for Hermes one-shot (`docs/research/hermes.md`) |
 | `FOOOCUS_LORAS_DIR` | `<FOOOCUS_DIR>/repositories/Fooocus/models/loras` | Where downloaded style LoRAs are stored |
 | `CIVITAI_API_KEY` | (unset) | Bearer token for Civitai LoRA downloads that require a logged-in account |
 

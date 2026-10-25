@@ -245,8 +245,16 @@ Adapted from the portable agent-team framework to this local, no-billing world
   `workspace/scratch/handoff-N.md` and the next agent gets a trimmed view (last
   output kept fullest) + a pointer. Below budget it's the old behavior verbatim.
 - **Blast-radius gate** (`engine.blast_radius_block`): `run_python`,
-  `sys_write_file`, `sys_edit_file` are refused on unattended runs (unless the
-  schedule allows) and in max-savings mode. Threaded via `unattended` /
+  `sys_write_file`, `sys_edit_file` and the `hermes_agent` custom tool (Hermes
+  one-shot auto-approves shell commands) are refused on unattended runs (unless the
+  schedule allows) and in max-savings mode.
+- **Auto-router classification** (`router.classify`, used by the router
+  topology): if an Ollama **decision model** is installed (`tev1`, `kev`, `d3`, … —
+  `providers.list_models()["decision"]`), the task kind is picked in ONE forward
+  pass via `POST /v1/systemone` (typed `choice` over `_KIND_CRITERIA`, returns
+  probabilities; `reason` = `p=0.93`). Otherwise / on any failure it falls back
+  to the chat-model JSON prompt. Decision models keep a ~2k-token context, so the
+  request is cut to 1200 chars. Research + measurements: `docs/research/small-models.md`. Threaded via `unattended` /
   `allow_destructive` on `TeamRunner` and `chat_stream`.
 
 ## Reliability mechanics (July 2026 studio-review hardening)

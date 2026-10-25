@@ -86,7 +86,7 @@ function InstallWizard({ provider, info, docker, onInstalled }) {
         <div className="param-hint">
           {info.name} is installed but not running —{" "}
           {provider === "ollama"
-            ? "start it with `systemctl start ollama` or `ollama serve`."
+            ? "start it with `systemctl --user start ollama` (user service, models in ~/.ollama) or `ollama serve`."
             : "launch the app and start its server from the Developer tab."}
         </div>
       ) : (
